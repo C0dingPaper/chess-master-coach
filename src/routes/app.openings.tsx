@@ -4,16 +4,22 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyConnect } from "@/components/empty-connect";
-import { useConnection, useGames } from "@/lib/chess/hooks";
+import { useConnection, useGames, useIsClient } from "@/lib/chess/hooks";
 import { buildOpeningTree, serializeTree, type SerializedNode } from "@/lib/chess/opening-tree";
 import type { Color } from "@/lib/chess/types";
-import { BookmarkCheck, ChevronRight } from "lucide-react";
+import { BookmarkCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Chessboard } from "react-chessboard";
 
 export const Route = createFileRoute("/app/openings")({
   head: () => ({ meta: [{ title: "Opening Tree - NeverPay4Chess" }] }),
   component: OpeningsPage,
 });
+
+type SelectedLine = {
+  nodes: SerializedNode[];
+  index: number;
+};
 
 function pct(part: number, total: number) {
   return total ? (part / total) * 100 : 0;
@@ -21,21 +27,24 @@ function pct(part: number, total: number) {
 
 function NodeRow({
   node,
+  ancestors = [],
   depth = 0,
   onPick,
 }: {
   node: SerializedNode;
+  ancestors?: SerializedNode[];
   depth?: number;
-  onPick: (n: SerializedNode) => void;
+  onPick: (line: SelectedLine) => void;
 }) {
   const [open, setOpen] = useState(depth < 2);
   const winRate = node.count ? Math.round((node.wins / node.count) * 100) : 0;
   const hasChildren = node.children.length > 0;
+  const line = [...ancestors, node];
   return (
     <div>
       <div
         onClick={() => {
-          onPick(node);
+          onPick({ nodes: line, index: line.length - 1 });
           if (hasChildren) setOpen(!open);
         }}
         className="group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 transition hover:bg-muted/40"
@@ -68,7 +77,13 @@ function NodeRow({
       {open && hasChildren && (
         <div>
           {node.children.map((c) => (
-            <NodeRow key={`${c.san}-${c.fen}`} node={c} depth={depth + 1} onPick={onPick} />
+            <NodeRow
+              key={`${c.san}-${c.fen}`}
+              node={c}
+              ancestors={line}
+              depth={depth + 1}
+              onPick={onPick}
+            />
           ))}
         </div>
       )}
@@ -76,21 +91,78 @@ function NodeRow({
   );
 }
 
-function MiniBoard({ node, color }: { node: SerializedNode; color: Color }) {
+function PositionBoard({
+  node,
+  color,
+  canGoBack,
+  canGoForward,
+  onBack,
+  onForward,
+}: {
+  node: SerializedNode;
+  color: Color;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onBack: () => void;
+  onForward: () => void;
+}) {
+  const isClient = useIsClient();
+
   return (
-    <div className="bg-board grain relative aspect-square overflow-hidden rounded-md shadow-elegant">
-      <div className="absolute inset-0 grid place-items-center">
-        <div className="select-none font-display text-6xl text-background/45">
-          {color === "white" ? "W" : "B"}
+    <Card className="border-border/60 bg-card/40 p-3">
+      <div className="mx-auto w-full max-w-[420px]">
+        <div className="aspect-square overflow-hidden rounded-md border border-border/60 bg-muted shadow-elegant">
+          {isClient ? (
+            <Chessboard
+              options={{
+                id: "opening-tree-board",
+                position: node.fen,
+                boardOrientation: color,
+                allowDragging: false,
+                allowDrawingArrows: true,
+                showNotation: true,
+                animationDurationInMs: 160,
+                darkSquareStyle: { backgroundColor: "oklch(0.45 0.05 70)" },
+                lightSquareStyle: { backgroundColor: "oklch(0.88 0.04 85)" },
+                boardStyle: { width: "100%", height: "100%" },
+              }}
+            />
+          ) : (
+            <div className="bg-board h-full w-full" />
+          )}
         </div>
       </div>
-      <div className="absolute bottom-2 left-2 right-2 rounded bg-background/85 px-3 py-2 font-mono text-xs backdrop-blur">
-        <div>
-          Position after <span className="text-accent">{node.san}</span>
+      <div className="mt-3 flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9"
+          onClick={onBack}
+          disabled={!canGoBack}
+          aria-label="Previous position"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0 flex-1 rounded-md border border-border/50 bg-background/60 px-3 py-2">
+          <div className="truncate font-mono text-xs">
+            Position after <span className="text-accent">{node.san || "start"}</span>
+          </div>
+          <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+            {node.fen}
+          </div>
         </div>
-        <div className="mt-1 truncate text-[10px] text-muted-foreground">{node.fen}</div>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9"
+          onClick={onForward}
+          disabled={!canGoForward}
+          aria-label="Next position"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -98,9 +170,22 @@ function OpeningsPage() {
   const conn = useConnection();
   const games = useGames();
   const [color, setColor] = useState<Color>("white");
-  const [picked, setPicked] = useState<SerializedNode | null>(null);
+  const [picked, setPicked] = useState<SelectedLine | null>(null);
   const tree = useMemo(() => serializeTree(buildOpeningTree(games, color)), [color, games]);
-  const selected = picked && picked.count > 0 ? picked : (tree.children[0] ?? tree);
+  const selectedNodes = [tree, ...(picked?.nodes ?? [])];
+  const selectedIndex = picked ? picked.index + 1 : 0;
+  const selected = selectedNodes[selectedIndex] ?? tree;
+
+  function moveSelection(delta: number) {
+    if (!picked) return;
+    setPicked((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        index: Math.max(-1, Math.min(current.nodes.length - 1, current.index + delta)),
+      };
+    });
+  }
 
   if (!conn || games.length === 0) {
     return (
@@ -159,7 +244,14 @@ function OpeningsPage() {
         </Card>
 
         <div className="space-y-4 lg:col-span-2">
-          <MiniBoard node={selected} color={color} />
+          <PositionBoard
+            node={selected}
+            color={color}
+            canGoBack={Boolean(picked && picked.index > -1)}
+            canGoForward={Boolean(picked && picked.index < picked.nodes.length - 1)}
+            onBack={() => moveSelection(-1)}
+            onForward={() => moveSelection(1)}
+          />
           <Card className="border-border/60 bg-card/40 p-5">
             <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               Selected line
