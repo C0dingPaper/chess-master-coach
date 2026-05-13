@@ -24,7 +24,9 @@ import {
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 
-const playItems = [
+type NavItem = { title: string; url: string; icon: typeof LayoutDashboard; exact?: boolean };
+
+const playItems: NavItem[] = [
   { title: "Overview", url: "/app", icon: LayoutDashboard, exact: true },
   { title: "My Games", url: "/app/games", icon: Swords },
   { title: "Opening Tree", url: "/app/openings", icon: GitBranch },
