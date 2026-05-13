@@ -79,11 +79,20 @@ type MoveAnalysis = {
   loss: number | null;
   evalAfter: number | null;
   evalBest: number | null;
+  evalBeforeWhite: number | null;
+  evalAfterWhite: number | null;
+  engineError?: string;
+};
+
+type PositionEvaluation = EngineEvaluation & {
+  whiteCp: number | null;
+  error?: string;
 };
 
 type AnalyzeState = {
   status: "idle" | "running" | "done" | "error";
   progress: number;
+  total: number;
   message: string;
 };
 
@@ -181,6 +190,42 @@ function formatEval(cp: number | null) {
   return `${pawns >= 0 ? "+" : ""}${pawns.toFixed(2)}`;
 }
 
+function evaluationToWhiteCentipawns(fen: string, evaluation: EngineEvaluation) {
+  const centipawns = evaluationToCentipawns(evaluation);
+  if (centipawns == null) return null;
+  const sideToMove = fen.split(" ")[1];
+  return sideToMove === "b" ? -centipawns : centipawns;
+}
+
+function toPositionEvaluation(
+  fen: string,
+  evaluation: EngineEvaluation,
+  error?: string,
+): PositionEvaluation {
+  return {
+    ...evaluation,
+    whiteCp: error ? null : evaluationToWhiteCentipawns(fen, evaluation),
+    error,
+  };
+}
+
+function emptyPositionEvaluation(fen: string, error: string): PositionEvaluation {
+  return toPositionEvaluation(fen, { bestMove: null, cp: null, mate: null, depth: 0 }, error);
+}
+
+function evalBarWhitePercent(cp: number | null) {
+  if (cp == null) return 50;
+  if (Math.abs(cp) > 90000) return cp > 0 ? 98 : 2;
+  const bounded = Math.max(-700, Math.min(700, cp));
+  return Math.round(50 + bounded / 14);
+}
+
+function formatEvalBarLabel(cp: number | null) {
+  if (cp == null) return "Eval";
+  if (Math.abs(cp) <= 15) return "Equal";
+  return cp > 0 ? `White ${formatEval(cp)}` : `Black ${formatEval(Math.abs(cp))}`;
+}
+
 function sanFromUci(fen: string, uci: string | null) {
   if (!uci) return null;
   try {
@@ -207,6 +252,8 @@ function classifyMove({
 }): MoveAnalysis {
   const bestEval = evaluationToCentipawns(best);
   const afterEval = evaluationToCentipawns(after);
+  const evalBeforeWhite = evaluationToWhiteCentipawns(move.before, best);
+  const evalAfterWhite = evaluationToWhiteCentipawns(move.after, after);
   const evalAfterForMover = afterEval == null ? null : -afterEval;
   const loss =
     bestEval == null || evalAfterForMover == null
@@ -216,7 +263,7 @@ function classifyMove({
   const bestSan = sanFromUci(move.before, best.bestMove);
 
   let annotation: AnnotationKind = "good";
-  if (loss == null) annotation = "good";
+  if (loss == null) annotation = "pending";
   else if (isBest && (best.mate != null || (bestEval ?? 0) >= 300 || loss <= 12)) {
     annotation = best.mate != null || (bestEval ?? 0) >= 300 ? "brilliancy" : "good";
   } else if (loss >= 300) annotation = "blunder";
@@ -231,6 +278,27 @@ function classifyMove({
     loss,
     evalAfter: evalAfterForMover,
     evalBest: bestEval,
+    evalBeforeWhite,
+    evalAfterWhite,
+  };
+}
+
+function skippedMoveAnalysis(
+  move: ReviewMove,
+  before: PositionEvaluation,
+  after: PositionEvaluation,
+): MoveAnalysis {
+  return {
+    annotation: "pending",
+    bestMove: before.bestMove,
+    bestSan: sanFromUci(move.before, before.bestMove),
+    depth: Math.min(before.depth, after.depth),
+    loss: null,
+    evalAfter: null,
+    evalBest: null,
+    evalBeforeWhite: before.whiteCp,
+    evalAfterWhite: after.whiteCp,
+    engineError: before.error ?? after.error,
   };
 }
 
@@ -337,7 +405,7 @@ function VariationMovePill({
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
         <ContextMenuLabel className="font-mono text-xs">
-          Sub move {index + 1} · {boardMoveLabel(move)}
+          Sub move {index + 1} - {boardMoveLabel(move)}
         </ContextMenuLabel>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onDeleteFrom}>
@@ -439,11 +507,47 @@ function MoveCell({
       </div>
       {analysis && (
         <div className="mt-1 flex items-center justify-between gap-2 font-mono text-[10px] opacity-80">
-          <span>{formatEval(analysis.evalAfter)}</span>
+          <span>{formatEval(analysis.evalAfterWhite)}</span>
           <span>{analysis.loss == null ? "0" : `-${Math.round(analysis.loss)}`}</span>
         </div>
       )}
     </button>
+  );
+}
+
+function EvaluationBar({
+  whiteCp,
+  depth,
+  analyzing,
+}: {
+  whiteCp: number | null;
+  depth: number | null;
+  analyzing: boolean;
+}) {
+  const whitePct = evalBarWhitePercent(whiteCp);
+
+  return (
+    <div className="flex w-12 shrink-0 flex-col items-center gap-2">
+      <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        Black
+      </div>
+      <div className="relative min-h-72 flex-1 overflow-hidden rounded-md border border-border/70 bg-zinc-950 shadow-inner">
+        <div
+          className="absolute inset-x-0 bottom-0 bg-zinc-100 transition-[height] duration-500 ease-out"
+          style={{ height: `${whitePct}%` }}
+        />
+        <div className="absolute inset-x-1/2 top-0 h-full w-px -translate-x-1/2 bg-border/30" />
+        <div className="absolute left-1/2 top-1/2 w-20 -translate-x-1/2 -translate-y-1/2 rotate-90 rounded border border-border/70 bg-background/90 px-2 py-1 text-center font-mono text-[10px] text-foreground shadow-sm">
+          {analyzing ? "..." : formatEvalBarLabel(whiteCp)}
+        </div>
+      </div>
+      <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        White
+      </div>
+      <div className="h-4 font-mono text-[9px] text-muted-foreground">
+        {depth ? `d${depth}` : ""}
+      </div>
+    </div>
   );
 }
 
@@ -465,9 +569,11 @@ function GameReviewPage() {
   const [markedSquares, setMarkedSquares] = useState<string[]>([]);
   const [variationMoves, setVariationMoves] = useState<VariationMove[]>([]);
   const [analysis, setAnalysis] = useState<Record<number, MoveAnalysis>>({});
+  const [positionAnalysis, setPositionAnalysis] = useState<Record<number, PositionEvaluation>>({});
   const [analyzeState, setAnalyzeState] = useState<AnalyzeState>({
     status: "idle",
     progress: 0,
+    total: 0,
     message: "Ready",
   });
 
@@ -479,12 +585,24 @@ function GameReviewPage() {
     ? "test"
     : (selectedAnalysis?.annotation ?? "pending");
   const fen = latestVariationMove?.after ?? selectedMove?.after ?? DEFAULT_POSITION;
-  const progressPct = moves.length ? Math.round((analyzeState.progress / moves.length) * 100) : 0;
+  const progressPct = analyzeState.total
+    ? Math.round((analyzeState.progress / analyzeState.total) * 100)
+    : 0;
   const summary = summarizeAnalysis(analysis);
   const sidebarCollapsed = sidebarState === "collapsed";
   const boardMaxZoom = sidebarCollapsed ? 118 : 108;
   const effectiveBoardZoom = Math.min(boardZoom, boardMaxZoom);
   const boardBaseSize = sidebarCollapsed ? 680 : 620;
+  const boardPixelSize = Math.round(boardBaseSize * (effectiveBoardZoom / 100));
+  const displayedPositionIndex = latestVariationMove ? null : selectedPly < 0 ? 0 : selectedPly + 1;
+  const displayedPositionEvaluation =
+    displayedPositionIndex == null ? null : (positionAnalysis[displayedPositionIndex] ?? null);
+  const displayedEvalWhite = latestVariationMove
+    ? null
+    : (selectedAnalysis?.evalAfterWhite ?? displayedPositionEvaluation?.whiteCp ?? null);
+  const displayedEvalDepth = latestVariationMove
+    ? null
+    : (selectedAnalysis?.depth ?? displayedPositionEvaluation?.depth ?? null);
   const movePairs = [];
 
   for (let i = 0; i < moves.length; i += 2) {
@@ -631,32 +749,99 @@ function GameReviewPage() {
   async function analyzeGame() {
     if (!moves.length || analyzeState.status === "running") return;
     let engine: StockfishClient | null = null;
+    const fens = [moves[0].before, ...moves.map((move) => move.after)];
+    const evaluations: PositionEvaluation[] = [];
+    let skippedPositions = 0;
+
+    async function restartEngine() {
+      engine?.dispose();
+      engine = new StockfishClient();
+      return engine;
+    }
+
+    async function evaluatePosition(fenToEvaluate: string, label: string) {
+      const activeEngine = engine ?? (await restartEngine());
+
+      try {
+        return toPositionEvaluation(
+          fenToEvaluate,
+          await activeEngine.evaluateFen(fenToEvaluate, { movetimeMs: 130, timeoutMs: 30000 }),
+        );
+      } catch (firstError) {
+        const retryEngine = await restartEngine();
+        try {
+          return toPositionEvaluation(
+            fenToEvaluate,
+            await retryEngine.evaluateFen(fenToEvaluate, { movetimeMs: 180, timeoutMs: 50000 }),
+          );
+        } catch (secondError) {
+          skippedPositions += 1;
+          const message =
+            secondError instanceof Error
+              ? secondError.message
+              : firstError instanceof Error
+                ? firstError.message
+                : `Stockfish skipped ${label}`;
+          return emptyPositionEvaluation(fenToEvaluate, message);
+        }
+      }
+    }
+
     setAnalysis({});
-    setAnalyzeState({ status: "running", progress: 0, message: "Starting Stockfish" });
+    setPositionAnalysis({});
+    setAnalyzeState({
+      status: "running",
+      progress: 0,
+      total: fens.length,
+      message: "Starting Stockfish",
+    });
 
     try {
       engine = new StockfishClient();
-      for (const move of moves) {
+      for (let index = 0; index < fens.length; index += 1) {
+        const move = moves[index - 1] ?? null;
+        const label = move ? moveLabel(move) : "starting position";
         setAnalyzeState({
           status: "running",
-          progress: move.ply,
-          message: `Analyzing ${moveLabel(move)}`,
+          progress: index,
+          total: fens.length,
+          message: `Analyzing ${label}`,
         });
-        const best = await engine.evaluateFen(move.before);
-        const after = await engine.evaluateFen(move.after);
-        const moveAnalysis = classifyMove({ move, best, after });
-        setAnalysis((current) => ({ ...current, [move.ply]: moveAnalysis }));
+
+        const positionEvaluation = await evaluatePosition(fens[index], label);
+        evaluations[index] = positionEvaluation;
+        setPositionAnalysis((current) => ({ ...current, [index]: positionEvaluation }));
+
+        if (move && evaluations[index - 1]) {
+          const before = evaluations[index - 1];
+          const moveAnalysis =
+            before.error || positionEvaluation.error
+              ? skippedMoveAnalysis(move, before, positionEvaluation)
+              : classifyMove({ move, best: before, after: positionEvaluation });
+          setAnalysis((current) => ({ ...current, [move.ply]: moveAnalysis }));
+        }
+
         setAnalyzeState({
           status: "running",
-          progress: move.ply + 1,
-          message: `Analyzed ${moveLabel(move)}`,
+          progress: index + 1,
+          total: fens.length,
+          message: `Analyzed ${label}`,
         });
       }
-      setAnalyzeState({ status: "done", progress: moves.length, message: "Analysis complete" });
+      setAnalyzeState({
+        status: "done",
+        progress: fens.length,
+        total: fens.length,
+        message:
+          skippedPositions > 0
+            ? `Full game analysis complete - ${skippedPositions} position(s) skipped`
+            : "Full game analysis complete",
+      });
     } catch (error) {
       setAnalyzeState({
         status: "error",
         progress: 0,
+        total: fens.length,
         message: error instanceof Error ? error.message : "Stockfish analysis failed",
       });
     } finally {
@@ -765,61 +950,68 @@ function GameReviewPage() {
               className={`transition-[max-width,margin] duration-500 ease-out ${
                 sidebarCollapsed ? "xl:mr-auto xl:ml-0" : "mx-auto"
               }`}
-              style={{ maxWidth: `${Math.round(boardBaseSize * (effectiveBoardZoom / 100))}px` }}
+              style={{ maxWidth: `${boardPixelSize + 60}px` }}
             >
-              <div className="aspect-square overflow-hidden rounded-md border border-border/60 bg-muted shadow-elegant">
-                {isClient ? (
-                  <Chessboard
-                    options={{
-                      id: `game-review-${game.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
-                      position: fen,
-                      boardOrientation: game.myColor,
-                      allowDragging: true,
-                      allowDrawingArrows: true,
-                      clearArrowsOnClick: false,
-                      clearArrowsOnPositionChange: false,
-                      arrowOptions: {
-                        color: "oklch(0.78 0.16 75 / 0.9)",
-                        secondaryColor: "oklch(0.82 0.12 205 / 0.85)",
-                        tertiaryColor: "oklch(0.65 0.21 25 / 0.85)",
-                        arrowLengthReducerDenominator: 8,
-                        sameTargetArrowLengthReducerDenominator: 4,
-                        arrowWidthDenominator: 5,
-                        activeArrowWidthMultiplier: 0.9,
-                        opacity: 0.7,
-                        activeOpacity: 0.55,
-                        arrowStartOffset: 0,
-                      },
-                      showNotation: true,
-                      animationDurationInMs: 160,
-                      darkSquareStyle: { backgroundColor: "oklch(0.45 0.05 70)" },
-                      lightSquareStyle: { backgroundColor: "oklch(0.88 0.04 85)" },
-                      squareStyles: selectedSquareStyles(
-                        displayedMove,
-                        selectedAnnotation,
-                        selectedSquare,
-                        markedSquares,
-                      ),
-                      arrows: displayedMove
-                        ? [
-                            {
-                              startSquare: displayedMove.from,
-                              endSquare: displayedMove.to,
-                              color: annotationColor(selectedAnnotation),
-                            },
-                          ]
-                        : [],
-                      onPieceDrop: ({ sourceSquare, targetSquare }) =>
-                        targetSquare ? playBoardMove(sourceSquare, targetSquare) : false,
-                      onSquareClick: ({ piece, square }) =>
-                        handleSquareClick(square, Boolean(piece)),
-                      onSquareRightClick: ({ square }) => toggleMarkedSquare(square),
-                      boardStyle: { width: "100%", height: "100%" },
-                    }}
-                  />
-                ) : (
-                  <div className="bg-board h-full w-full" />
-                )}
+              <div className="flex items-stretch gap-3">
+                <div className="aspect-square min-w-0 flex-1 overflow-hidden rounded-md border border-border/60 bg-muted shadow-elegant">
+                  {isClient ? (
+                    <Chessboard
+                      options={{
+                        id: `game-review-${game.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+                        position: fen,
+                        boardOrientation: game.myColor,
+                        allowDragging: true,
+                        allowDrawingArrows: true,
+                        clearArrowsOnClick: false,
+                        clearArrowsOnPositionChange: false,
+                        arrowOptions: {
+                          color: "oklch(0.78 0.16 75 / 0.9)",
+                          secondaryColor: "oklch(0.82 0.12 205 / 0.85)",
+                          tertiaryColor: "oklch(0.65 0.21 25 / 0.85)",
+                          arrowLengthReducerDenominator: 8,
+                          sameTargetArrowLengthReducerDenominator: 4,
+                          arrowWidthDenominator: 5,
+                          activeArrowWidthMultiplier: 0.9,
+                          opacity: 0.7,
+                          activeOpacity: 0.55,
+                          arrowStartOffset: 0,
+                        },
+                        showNotation: true,
+                        animationDurationInMs: 160,
+                        darkSquareStyle: { backgroundColor: "oklch(0.45 0.05 70)" },
+                        lightSquareStyle: { backgroundColor: "oklch(0.88 0.04 85)" },
+                        squareStyles: selectedSquareStyles(
+                          displayedMove,
+                          selectedAnnotation,
+                          selectedSquare,
+                          markedSquares,
+                        ),
+                        arrows: displayedMove
+                          ? [
+                              {
+                                startSquare: displayedMove.from,
+                                endSquare: displayedMove.to,
+                                color: annotationColor(selectedAnnotation),
+                              },
+                            ]
+                          : [],
+                        onPieceDrop: ({ sourceSquare, targetSquare }) =>
+                          targetSquare ? playBoardMove(sourceSquare, targetSquare) : false,
+                        onSquareClick: ({ piece, square }) =>
+                          handleSquareClick(square, Boolean(piece)),
+                        onSquareRightClick: ({ square }) => toggleMarkedSquare(square),
+                        boardStyle: { width: "100%", height: "100%" },
+                      }}
+                    />
+                  ) : (
+                    <div className="bg-board h-full w-full" />
+                  )}
+                </div>
+                <EvaluationBar
+                  whiteCp={displayedEvalWhite}
+                  depth={displayedEvalDepth}
+                  analyzing={analyzeState.status === "running"}
+                />
               </div>
             </div>
 
