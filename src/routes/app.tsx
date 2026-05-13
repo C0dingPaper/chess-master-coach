@@ -34,12 +34,21 @@ function AppLayout() {
                 <Bell className="h-4 w-4" />
               </Button>
               {conn ? (
-                <Button onClick={() => setOpen(true)} variant="outline" size="sm" className="font-mono text-xs gap-2">
+                <Button
+                  onClick={() => setOpen(true)}
+                  variant="outline"
+                  size="sm"
+                  className="font-mono text-xs gap-2"
+                >
                   <Plug className="h-3.5 w-3.5 text-accent" />
                   {conn.username} · {conn.platform}
                 </Button>
               ) : (
-                <Button onClick={() => setOpen(true)} size="sm" className="bg-accent text-accent-foreground hover:bg-accent/90 font-medium">
+                <Button
+                  onClick={() => setOpen(true)}
+                  size="sm"
+                  className="bg-accent text-accent-foreground hover:bg-accent/90 font-medium"
+                >
                   Connect account
                 </Button>
               )}
@@ -49,7 +58,12 @@ function AppLayout() {
             <Outlet />
           </main>
         </SidebarInset>
-        <ConnectDialog open={open} onOpenChange={setOpen} initialUsername={conn?.username} initialPlatform={conn?.platform} />
+        <ConnectDialog
+          open={open}
+          onOpenChange={setOpen}
+          initialUsername={conn?.username}
+          initialPlatform={conn?.platform}
+        />
       </div>
     </SidebarProvider>
   );

@@ -24,7 +24,10 @@ export function EmptyConnect({
       </div>
       <h3 className="font-display text-2xl font-semibold mb-2">{title}</h3>
       <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">{description}</p>
-      <Button onClick={() => setOpen(true)} className="bg-accent text-accent-foreground hover:bg-accent/90">
+      <Button
+        onClick={() => setOpen(true)}
+        className="bg-accent text-accent-foreground hover:bg-accent/90"
+      >
         Connect now
       </Button>
       <ConnectDialog open={open} onOpenChange={setOpen} />

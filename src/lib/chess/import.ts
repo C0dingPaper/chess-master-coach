@@ -16,11 +16,17 @@ export interface ImportResult {
 }
 
 // ---------- Chess.com ----------
-export async function importChessCom(username: string, maxMonths = 6, report?: Reporter): Promise<ImportResult> {
+export async function importChessCom(
+  username: string,
+  maxMonths = 6,
+  report?: Reporter,
+): Promise<ImportResult> {
   const errors: string[] = [];
   report?.({ fetched: 0, parsed: 0, total: null, status: "Fetching archives…" });
 
-  const archivesRes = await fetch(`https://api.chess.com/pub/player/${encodeURIComponent(username)}/games/archives`);
+  const archivesRes = await fetch(
+    `https://api.chess.com/pub/player/${encodeURIComponent(username)}/games/archives`,
+  );
   if (!archivesRes.ok) {
     throw new Error(
       archivesRes.status === 404
@@ -34,10 +40,18 @@ export async function importChessCom(username: string, maxMonths = 6, report?: R
   const games: StoredGame[] = [];
   for (let i = 0; i < recent.length; i++) {
     const url = recent[i];
-    report?.({ fetched: i, parsed: games.length, total: recent.length, status: `Fetching month ${i + 1}/${recent.length}…` });
+    report?.({
+      fetched: i,
+      parsed: games.length,
+      total: recent.length,
+      status: `Fetching month ${i + 1}/${recent.length}…`,
+    });
     try {
       const res = await fetch(url);
-      if (!res.ok) { errors.push(`Failed ${url}: ${res.status}`); continue; }
+      if (!res.ok) {
+        errors.push(`Failed ${url}: ${res.status}`);
+        continue;
+      }
       const data = (await res.json()) as { games: ChessComGame[] };
       for (const g of data.games) {
         if (!g.pgn) continue;
@@ -45,8 +59,8 @@ export async function importChessCom(username: string, maxMonths = 6, report?: R
           const id = g.url.split("/").pop() ?? `${g.end_time}`;
           const accuracy =
             g.white.username.toLowerCase() === username.toLowerCase()
-              ? g.accuracies?.white ?? null
-              : g.accuracies?.black ?? null;
+              ? (g.accuracies?.white ?? null)
+              : (g.accuracies?.black ?? null);
           games.push(
             buildStoredGame({
               platform: "chess.com",
@@ -79,7 +93,11 @@ interface ChessComGame {
 }
 
 // ---------- Lichess ----------
-export async function importLichess(username: string, max = 200, report?: Reporter): Promise<ImportResult> {
+export async function importLichess(
+  username: string,
+  max = 200,
+  report?: Reporter,
+): Promise<ImportResult> {
   const errors: string[] = [];
   report?.({ fetched: 0, parsed: 0, total: max, status: "Streaming PGNs from Lichess…" });
 
@@ -121,7 +139,13 @@ export async function importLichess(username: string, max = 200, report?: Report
             accuracy: null,
           }),
         );
-        if (games.length % 10 === 0) report?.({ fetched: games.length, parsed: games.length, total: max, status: "Streaming…" });
+        if (games.length % 10 === 0)
+          report?.({
+            fetched: games.length,
+            parsed: games.length,
+            total: max,
+            status: "Streaming…",
+          });
       } catch (e) {
         errors.push(`Parse error: ${(e as Error).message}`);
       }
@@ -136,7 +160,11 @@ interface LichessGame {
   pgn?: string;
 }
 
-export async function importGames(platform: Platform, username: string, report?: Reporter): Promise<ImportResult> {
+export async function importGames(
+  platform: Platform,
+  username: string,
+  report?: Reporter,
+): Promise<ImportResult> {
   if (platform === "chess.com") return importChessCom(username, 6, report);
   return importLichess(username, 200, report);
 }

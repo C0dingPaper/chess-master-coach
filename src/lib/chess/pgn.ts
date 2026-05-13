@@ -50,7 +50,8 @@ export function parsePgnMeta(pgn: string): ParsedGameMeta {
     blackRating: parseRating(tag(pgn, "BlackElo")),
     result,
     termination: tag(pgn, "Termination") ?? "",
-    opening: tag(pgn, "Opening") ?? tag(pgn, "ECOUrl")?.split("/").pop()?.replace(/-/g, " ") ?? "Unknown",
+    opening:
+      tag(pgn, "Opening") ?? tag(pgn, "ECOUrl")?.split("/").pop()?.replace(/-/g, " ") ?? "Unknown",
     eco: tag(pgn, "ECO") ?? "—",
     timeControl: tag(pgn, "TimeControl") ?? "",
     movesCount,
@@ -74,7 +75,8 @@ export function buildStoredGame(args: {
   accuracy?: number | null;
 }): StoredGame {
   const meta = parsePgnMeta(args.pgn);
-  const myColor: Color = meta.whiteUser.toLowerCase() === args.username.toLowerCase() ? "white" : "black";
+  const myColor: Color =
+    meta.whiteUser.toLowerCase() === args.username.toLowerCase() ? "white" : "black";
   const result = determineResult(meta, myColor);
   return {
     id: `${args.platform}:${args.gameId}`,

@@ -2,7 +2,7 @@ import { Chess } from "chess.js";
 import type { StoredGame } from "./types";
 
 export interface TreeNode {
-  san: string;          // "" for root
+  san: string; // "" for root
   fen: string;
   count: number;
   wins: number;
@@ -12,11 +12,18 @@ export interface TreeNode {
   children: Map<string, TreeNode>;
 }
 
-export function buildOpeningTree(games: StoredGame[], color: "white" | "black", maxPly = 12): TreeNode {
+export function buildOpeningTree(
+  games: StoredGame[],
+  color: "white" | "black",
+  maxPly = 12,
+): TreeNode {
   const root: TreeNode = {
     san: "",
     fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-    count: 0, wins: 0, draws: 0, losses: 0,
+    count: 0,
+    wins: 0,
+    draws: 0,
+    losses: 0,
     children: new Map(),
   };
 
@@ -26,7 +33,9 @@ export function buildOpeningTree(games: StoredGame[], color: "white" | "black", 
     try {
       chess = new Chess();
       chess.loadPgn(g.pgn, { strict: false });
-    } catch { continue; }
+    } catch {
+      continue;
+    }
     const history = chess.history();
     if (history.length === 0) continue;
 
@@ -36,7 +45,11 @@ export function buildOpeningTree(games: StoredGame[], color: "white" | "black", 
     const limit = Math.min(maxPly, history.length);
     for (let i = 0; i < limit; i++) {
       const san = history[i];
-      try { c.move(san); } catch { break; }
+      try {
+        c.move(san);
+      } catch {
+        break;
+      }
       let child = node.children.get(san);
       if (!child) {
         child = { san, fen: c.fen(), count: 0, wins: 0, draws: 0, losses: 0, children: new Map() };

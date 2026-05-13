@@ -6,10 +6,16 @@ function useStore<T>(initial: T, fetcher: () => Promise<T>) {
   const [value, setValue] = useState<T>(initial);
   useEffect(() => {
     let cancelled = false;
-    const refresh = () => fetcher().then((v) => { if (!cancelled) setValue(v); });
+    const refresh = () =>
+      fetcher().then((v) => {
+        if (!cancelled) setValue(v);
+      });
     refresh();
     const unsub = subscribe(refresh);
-    return () => { cancelled = true; unsub(); };
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return value;
 }

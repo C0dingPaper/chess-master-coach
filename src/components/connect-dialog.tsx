@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +25,12 @@ interface Props {
   initialPlatform?: Platform;
 }
 
-export function ConnectDialog({ open, onOpenChange, initialUsername = "", initialPlatform = "chess.com" }: Props) {
+export function ConnectDialog({
+  open,
+  onOpenChange,
+  initialUsername = "",
+  initialPlatform = "chess.com",
+}: Props) {
   const [username, setUsername] = useState(initialUsername);
   const [platform, setPlatform] = useState<Platform>(initialPlatform);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
@@ -26,7 +38,10 @@ export function ConnectDialog({ open, onOpenChange, initialUsername = "", initia
 
   async function handleConnect() {
     const u = username.trim();
-    if (!u) { toast.error("Enter your username"); return; }
+    if (!u) {
+      toast.error("Enter your username");
+      return;
+    }
     setBusy(true);
     setProgress({ fetched: 0, parsed: 0, total: null, status: "Starting…" });
     try {
@@ -51,7 +66,11 @@ export function ConnectDialog({ open, onOpenChange, initialUsername = "", initia
     }
   }
 
-  const pct = progress?.total ? Math.round((progress.fetched / progress.total) * 100) : (progress ? 50 : 0);
+  const pct = progress?.total
+    ? Math.round((progress.fetched / progress.total) * 100)
+    : progress
+      ? 50
+      : 0;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !busy && onOpenChange(v)}>
@@ -61,14 +80,21 @@ export function ConnectDialog({ open, onOpenChange, initialUsername = "", initia
             <Plug className="h-5 w-5 text-accent" /> Connect your chess account
           </DialogTitle>
           <DialogDescription>
-            Enter your username — we'll pull your public games. No account, no password, no email. Your data lives in your browser.
+            Enter your username — we'll pull your public games. No account, no password, no email.
+            Your data lives in your browser.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div>
-            <Label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Platform</Label>
-            <RadioGroup value={platform} onValueChange={(v) => setPlatform(v as Platform)} className="grid grid-cols-2 gap-2 mt-2">
+            <Label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Platform
+            </Label>
+            <RadioGroup
+              value={platform}
+              onValueChange={(v) => setPlatform(v as Platform)}
+              className="grid grid-cols-2 gap-2 mt-2"
+            >
               {(["chess.com", "lichess"] as Platform[]).map((p) => (
                 <Label
                   key={p}
@@ -77,8 +103,12 @@ export function ConnectDialog({ open, onOpenChange, initialUsername = "", initia
                 >
                   <RadioGroupItem value={p} id={`p-${p}`} />
                   <div>
-                    <div className="font-medium text-sm">{p === "chess.com" ? "Chess.com" : "Lichess"}</div>
-                    <div className="text-[10px] text-muted-foreground font-mono">{p === "chess.com" ? "Last 6 months" : "Last 200 games"}</div>
+                    <div className="font-medium text-sm">
+                      {p === "chess.com" ? "Chess.com" : "Lichess"}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground font-mono">
+                      {p === "chess.com" ? "Last 6 months" : "Last 200 games"}
+                    </div>
                   </div>
                 </Label>
               ))}
@@ -86,7 +116,12 @@ export function ConnectDialog({ open, onOpenChange, initialUsername = "", initia
           </div>
 
           <div>
-            <Label htmlFor="username" className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Username</Label>
+            <Label
+              htmlFor="username"
+              className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground"
+            >
+              Username
+            </Label>
             <Input
               id="username"
               value={username}
@@ -94,7 +129,9 @@ export function ConnectDialog({ open, onOpenChange, initialUsername = "", initia
               placeholder={platform === "chess.com" ? "MagnusCarlsen" : "DrNykterstein"}
               className="mt-2 font-mono"
               disabled={busy}
-              onKeyDown={(e) => { if (e.key === "Enter") handleConnect(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleConnect();
+              }}
             />
           </div>
 
@@ -110,9 +147,21 @@ export function ConnectDialog({ open, onOpenChange, initialUsername = "", initia
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={handleConnect} disabled={busy} className="bg-accent text-accent-foreground hover:bg-accent/90">
-            {busy ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Importing…</> : "Import games"}
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConnect}
+            disabled={busy}
+            className="bg-accent text-accent-foreground hover:bg-accent/90"
+          >
+            {busy ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Importing…
+              </>
+            ) : (
+              "Import games"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

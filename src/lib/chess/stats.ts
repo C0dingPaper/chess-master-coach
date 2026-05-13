@@ -10,18 +10,21 @@ export interface OverallStats {
   lossRate: number;
   asWhite: { wins: number; draws: number; losses: number };
   asBlack: { wins: number; draws: number; losses: number };
-  currentStreak: number;       // signed: positive=wins in a row, negative=losses
+  currentStreak: number; // signed: positive=wins in a row, negative=losses
   avgAccuracy: number | null;
   rating: number | null;
-  ratingDelta: number;          // last 30 days
+  ratingDelta: number; // last 30 days
 }
 
 export function computeStats(games: StoredGame[]): OverallStats {
   const total = games.length;
-  let wins = 0, draws = 0, losses = 0;
+  let wins = 0,
+    draws = 0,
+    losses = 0;
   const aw = { wins: 0, draws: 0, losses: 0 };
   const ab = { wins: 0, draws: 0, losses: 0 };
-  let accSum = 0, accCount = 0;
+  let accSum = 0,
+    accCount = 0;
 
   for (const g of games) {
     if (g.result === "win") wins++;
@@ -31,7 +34,10 @@ export function computeStats(games: StoredGame[]): OverallStats {
     if (g.result === "win") bucket.wins++;
     else if (g.result === "loss") bucket.losses++;
     else bucket.draws++;
-    if (g.accuracy != null) { accSum += g.accuracy; accCount++; }
+    if (g.accuracy != null) {
+      accSum += g.accuracy;
+      accCount++;
+    }
   }
 
   // games sorted by endTime desc; current streak from start
@@ -57,11 +63,15 @@ export function computeStats(games: StoredGame[]): OverallStats {
   const ratingDelta = rating != null && old?.myRating != null ? rating - old.myRating : 0;
 
   return {
-    total, wins, draws, losses,
+    total,
+    wins,
+    draws,
+    losses,
     winRate: total ? Math.round((wins / total) * 100) : 0,
     drawRate: total ? Math.round((draws / total) * 100) : 0,
     lossRate: total ? Math.round((losses / total) * 100) : 0,
-    asWhite: aw, asBlack: ab,
+    asWhite: aw,
+    asBlack: ab,
     currentStreak,
     avgAccuracy: accCount ? Math.round((accSum / accCount) * 10) / 10 : null,
     rating,
@@ -77,7 +87,8 @@ export function ratingTimeline(games: StoredGame[]): { date: string; rating: num
     const d = new Date(g.endTime * 1000);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const b = buckets.get(key) ?? { sum: 0, count: 0, ts: d.getTime() };
-    b.sum += g.myRating; b.count++;
+    b.sum += g.myRating;
+    b.count++;
     buckets.set(key, b);
   }
   return Array.from(buckets.entries())
@@ -90,7 +101,9 @@ export function ratingTimeline(games: StoredGame[]): { date: string; rating: num
 }
 
 // Skills derived heuristically from real game data
-export function computeSkills(games: StoredGame[]): { name: string; value: number; delta: number }[] {
+export function computeSkills(
+  games: StoredGame[],
+): { name: string; value: number; delta: number }[] {
   const stats = computeStats(games);
   const recent = games.slice(0, Math.min(20, games.length));
   const older = games.slice(20, 40);
@@ -105,7 +118,12 @@ export function computeSkills(games: StoredGame[]): { name: string; value: numbe
   // Defense skill: win/draw rate as black
   const blackGames = games.filter((g) => g.myColor === "black");
   const defenseWR = blackGames.length
-    ? Math.round(((blackGames.filter((g) => g.result === "win").length + blackGames.filter((g) => g.result === "draw").length * 0.5) / blackGames.length) * 100)
+    ? Math.round(
+        ((blackGames.filter((g) => g.result === "win").length +
+          blackGames.filter((g) => g.result === "draw").length * 0.5) /
+          blackGames.length) *
+          100,
+      )
     : 50;
 
   // Time mgmt: blitz/bullet wins
@@ -114,12 +132,15 @@ export function computeSkills(games: StoredGame[]): { name: string; value: numbe
 
   // Tactics: short decisive games
   const short = games.filter((g) => g.movesCount > 0 && g.movesCount < 30 && g.result !== "draw");
-  const tacticsWR = short.length ? Math.round((short.filter((g) => g.result === "win").length / short.length) * 100) : 50;
+  const tacticsWR = short.length
+    ? Math.round((short.filter((g) => g.result === "win").length / short.length) * 100)
+    : 50;
 
   // Openings: avg accuracy * winrate proxy
-  const openingScore = stats.avgAccuracy != null
-    ? Math.round((stats.avgAccuracy * 0.6 + stats.winRate * 0.4))
-    : Math.round(50 + (stats.winRate - 50) * 0.6);
+  const openingScore =
+    stats.avgAccuracy != null
+      ? Math.round(stats.avgAccuracy * 0.6 + stats.winRate * 0.4)
+      : Math.round(50 + (stats.winRate - 50) * 0.6);
 
   // Positional: long-game draw rate + rating change
   const positionalScore = clamp(50 + (stats.winRate - 50) * 0.5 + stats.ratingDelta * 0.2, 0, 100);
@@ -127,7 +148,11 @@ export function computeSkills(games: StoredGame[]): { name: string; value: numbe
   return [
     { name: "Openings", value: clamp(openingScore, 0, 100), delta: wrDelta },
     { name: "Tactics", value: clamp(tacticsWR, 0, 100), delta: wrDelta },
-    { name: "Positional", value: Math.round(positionalScore), delta: Math.round(stats.ratingDelta / 5) },
+    {
+      name: "Positional",
+      value: Math.round(positionalScore),
+      delta: Math.round(stats.ratingDelta / 5),
+    },
     { name: "Endgames", value: clamp(endgameWR, 0, 100), delta: wrDelta },
     { name: "Defense", value: clamp(defenseWR, 0, 100), delta: 0 },
     { name: "Time Mgmt", value: clamp(fastWR, 0, 100), delta: 0 },
@@ -156,19 +181,35 @@ export function detectIssues(games: StoredGame[]): DetectedIssue[] {
   for (const g of games) {
     if (g.result !== "loss") continue;
     if (g.movesCount > 0 && g.movesCount < 22) {
-      issues.push({ game: g, type: "Blunder", reason: `Lost in only ${g.movesCount} moves — likely an early tactical blunder.` });
+      issues.push({
+        game: g,
+        type: "Blunder",
+        reason: `Lost in only ${g.movesCount} moves — likely an early tactical blunder.`,
+      });
       continue;
     }
     if (g.accuracy != null && g.accuracy < 70) {
-      issues.push({ game: g, type: "Blunder", reason: `Accuracy only ${g.accuracy}% — multiple decisive errors.` });
+      issues.push({
+        game: g,
+        type: "Blunder",
+        reason: `Accuracy only ${g.accuracy}% — multiple decisive errors.`,
+      });
       continue;
     }
     if (/checkmate/i.test(g.termination) && g.movesCount < 35) {
-      issues.push({ game: g, type: "Mistake", reason: `Got mated in ${g.movesCount} moves — defensive lapse.` });
+      issues.push({
+        game: g,
+        type: "Mistake",
+        reason: `Got mated in ${g.movesCount} moves — defensive lapse.`,
+      });
       continue;
     }
     if (g.accuracy != null && g.accuracy < 80) {
-      issues.push({ game: g, type: "Inaccuracy", reason: `Accuracy ${g.accuracy}% — drifted in a winnable position.` });
+      issues.push({
+        game: g,
+        type: "Inaccuracy",
+        reason: `Accuracy ${g.accuracy}% — drifted in a winnable position.`,
+      });
     }
   }
   return issues.slice(0, 30);
