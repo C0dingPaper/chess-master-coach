@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppTrainRouteImport } from './routes/app.train'
 import { Route as AppRepertoireRouteImport } from './routes/app.repertoire'
 import { Route as AppOpeningsRouteImport } from './routes/app.openings'
 import { Route as AppGamesRouteImport } from './routes/app.games'
@@ -29,6 +30,11 @@ const IndexRoute = IndexRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTrainRoute = AppTrainRouteImport.update({
+  id: '/train',
+  path: '/train',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRepertoireRoute = AppRepertoireRouteImport.update({
@@ -53,6 +59,7 @@ export interface FileRoutesByFullPath {
   '/app/games': typeof AppGamesRoute
   '/app/openings': typeof AppOpeningsRoute
   '/app/repertoire': typeof AppRepertoireRoute
+  '/app/train': typeof AppTrainRoute
   '/app/': typeof AppIndexRoute
 }
 export interface FileRoutesByTo {
@@ -60,6 +67,7 @@ export interface FileRoutesByTo {
   '/app/games': typeof AppGamesRoute
   '/app/openings': typeof AppOpeningsRoute
   '/app/repertoire': typeof AppRepertoireRoute
+  '/app/train': typeof AppTrainRoute
   '/app': typeof AppIndexRoute
 }
 export interface FileRoutesById {
@@ -69,6 +77,7 @@ export interface FileRoutesById {
   '/app/games': typeof AppGamesRoute
   '/app/openings': typeof AppOpeningsRoute
   '/app/repertoire': typeof AppRepertoireRoute
+  '/app/train': typeof AppTrainRoute
   '/app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
@@ -79,9 +88,16 @@ export interface FileRouteTypes {
     | '/app/games'
     | '/app/openings'
     | '/app/repertoire'
+    | '/app/train'
     | '/app/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/app/games' | '/app/openings' | '/app/repertoire' | '/app'
+  to:
+    | '/'
+    | '/app/games'
+    | '/app/openings'
+    | '/app/repertoire'
+    | '/app/train'
+    | '/app'
   id:
     | '__root__'
     | '/'
@@ -89,6 +105,7 @@ export interface FileRouteTypes {
     | '/app/games'
     | '/app/openings'
     | '/app/repertoire'
+    | '/app/train'
     | '/app/'
   fileRoutesById: FileRoutesById
 }
@@ -120,6 +137,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/train': {
+      id: '/app/train'
+      path: '/train'
+      fullPath: '/app/train'
+      preLoaderRoute: typeof AppTrainRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/repertoire': {
       id: '/app/repertoire'
       path: '/repertoire'
@@ -148,6 +172,7 @@ interface AppRouteChildren {
   AppGamesRoute: typeof AppGamesRoute
   AppOpeningsRoute: typeof AppOpeningsRoute
   AppRepertoireRoute: typeof AppRepertoireRoute
+  AppTrainRoute: typeof AppTrainRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -155,6 +180,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppGamesRoute: AppGamesRoute,
   AppOpeningsRoute: AppOpeningsRoute,
   AppRepertoireRoute: AppRepertoireRoute,
+  AppTrainRoute: AppTrainRoute,
   AppIndexRoute: AppIndexRoute,
 }
 
