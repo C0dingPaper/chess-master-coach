@@ -32,13 +32,13 @@ const playItems: NavItem[] = [
   { title: "Opening Tree", url: "/app/openings", icon: GitBranch },
 ];
 
-const trainItems = [
+const trainItems: NavItem[] = [
   { title: "Repertoire", url: "/app/repertoire", icon: BookMarked },
   { title: "Spaced Repetition", url: "/app/train", icon: Brain },
   { title: "Mistakes", url: "/app/mistakes", icon: AlertTriangle },
 ];
 
-const trackItems = [
+const trackItems: NavItem[] = [
   { title: "Skills & Progress", url: "/app/skills", icon: TrendingUp },
 ];
 
