@@ -1,6 +1,7 @@
 import stockfishScriptUrl from "stockfish/bin/stockfish-18-lite-single.js?url";
 import stockfishWasmUrl from "stockfish/bin/stockfish-18-lite-single.wasm?url";
 import type { EngineEvaluation } from "@/lib/chess/engine-evaluation";
+
 export type { EngineEvaluation } from "@/lib/chess/engine-evaluation";
 export { evaluationToCentipawns } from "@/lib/chess/engine-evaluation";
 
@@ -11,6 +12,7 @@ type EvaluateFenOptions = {
   movetimeMs?: number;
   depth?: number;
   timeoutMs?: number;
+  hardTimeoutMs?: number;
 };
 
 function parseInfoLine(line: string, current: EngineEvaluation): EngineEvaluation {
@@ -35,17 +37,22 @@ export class StockfishClient {
   private handlers = new Set<LineHandler>();
   private errorHandlers = new Set<ErrorHandler>();
   private initialized = false;
+  private initializing: Promise<void> | null = null;
+  private queue: Promise<void> = Promise.resolve();
 
   constructor() {
     this.worker = new Worker(workerUrl(), { name: "stockfish-review" });
+
     this.worker.addEventListener("message", (event) => {
       const line = String(event.data);
       for (const handler of this.handlers) handler(line);
     });
+
     this.worker.addEventListener("error", (event) => {
       const error = new Error(event.message || "Stockfish worker failed");
       for (const handler of this.errorHandlers) handler(error);
     });
+
     this.worker.addEventListener("messageerror", () => {
       const error = new Error("Stockfish sent an unreadable message");
       for (const handler of this.errorHandlers) handler(error);
@@ -59,7 +66,7 @@ export class StockfishClient {
   private waitFor(
     matcher: (line: string) => boolean,
     timeoutMs = 45000,
-    timeoutMessage = "Stockfish timed out while starting",
+    timeoutMessage = "Stockfish timed out",
   ) {
     return new Promise<string>((resolve, reject) => {
       const cleanup = () => {
@@ -67,6 +74,7 @@ export class StockfishClient {
         this.handlers.delete(handler);
         this.errorHandlers.delete(errorHandler);
       };
+
       const timer = window.setTimeout(() => {
         cleanup();
         reject(new Error(timeoutMessage));
@@ -90,50 +98,110 @@ export class StockfishClient {
 
   async init() {
     if (this.initialized) return;
+    if (this.initializing) return this.initializing;
+
+    this.initializing = this.initInternal();
+
+    try {
+      await this.initializing;
+    } finally {
+      this.initializing = null;
+    }
+  }
+
+  private async initInternal() {
     const uciReady = this.waitFor(
       (line) => line === "uciok",
-      60000,
+      30000,
       "Stockfish timed out while loading",
     );
+
     this.send("uci");
     await uciReady;
+
     this.send("setoption name Hash value 32");
     this.send("setoption name Skill Level value 20");
     this.send("setoption name Move Overhead value 10");
+
     const engineReady = this.waitFor(
       (line) => line === "readyok",
-      45000,
+      12000,
       "Stockfish timed out while preparing",
     );
+
     this.send("isready");
     await engineReady;
+
     this.send("ucinewgame");
     this.initialized = true;
   }
 
-  async evaluateFen(
+  async evaluateFen(fen: string, options: EvaluateFenOptions = {}): Promise<EngineEvaluation> {
+    const queued = this.queue.then(
+      () => this.evaluateFenNow(fen, options),
+      () => this.evaluateFenNow(fen, options),
+    );
+
+    this.queue = queued.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    return queued;
+  }
+
+  private async evaluateFenNow(
     fen: string,
-    { movetimeMs = 140, depth, timeoutMs }: EvaluateFenOptions = {},
+    { movetimeMs = 220, depth, timeoutMs, hardTimeoutMs }: EvaluateFenOptions = {},
   ): Promise<EngineEvaluation> {
     await this.init();
 
     return new Promise((resolve, reject) => {
-      let evaluation: EngineEvaluation = { bestMove: null, cp: null, mate: null, depth: 0 };
-      const limit = timeoutMs ?? (depth ? 30000 : Math.max(25000, movetimeMs + 16000));
+      let evaluation: EngineEvaluation = {
+        bestMove: null,
+        cp: null,
+        mate: null,
+        depth: 0,
+      };
+
+      let stopped = false;
+      let resolved = false;
+
+      const softLimit = timeoutMs ?? (depth ? 30000 : Math.max(1000, movetimeMs + 1000));
+
+      const fallbackHardLimit = softLimit + Math.min(3000, Math.max(1200, softLimit));
+      const hardLimit = Math.max(hardTimeoutMs ?? fallbackHardLimit, softLimit + 250);
+
       const cleanup = () => {
-        window.clearTimeout(timer);
+        window.clearTimeout(softTimer);
+        window.clearTimeout(hardTimer);
         this.handlers.delete(handler);
         this.errorHandlers.delete(errorHandler);
       };
-      const timer = window.setTimeout(() => {
-        cleanup();
+
+      const requestStop = () => {
+        if (stopped || resolved) return;
+        stopped = true;
+
         try {
           this.send("stop");
         } catch {
-          // The worker may already be gone.
+          // Worker may already be gone.
         }
-        reject(new Error(`Stockfish timed out evaluating ${fen}`));
-      }, limit);
+      };
+
+      const softTimer = window.setTimeout(() => {
+        requestStop();
+      }, softLimit);
+
+      const hardTimer = window.setTimeout(() => {
+        if (resolved) return;
+
+        requestStop();
+        resolved = true;
+        cleanup();
+        reject(new Error(`Stockfish did not return bestmove for ${fen}`));
+      }, hardLimit);
 
       const handler: LineHandler = (line) => {
         if (line.startsWith("info ")) {
@@ -142,20 +210,36 @@ export class StockfishClient {
         }
 
         if (!line.startsWith("bestmove ")) return;
+
         const [, bestMove] = line.split(/\s+/);
+
+        resolved = true;
         cleanup();
-        resolve({ ...evaluation, bestMove: bestMove && bestMove !== "(none)" ? bestMove : null });
+
+        resolve({
+          ...evaluation,
+          bestMove: bestMove && bestMove !== "(none)" ? bestMove : null,
+        });
       };
 
       const errorHandler: ErrorHandler = (error) => {
+        if (resolved) return;
+
+        resolved = true;
         cleanup();
         reject(error);
       };
 
       this.handlers.add(handler);
       this.errorHandlers.add(errorHandler);
+
       this.send(`position fen ${fen}`);
-      this.send(depth ? `go depth ${depth}` : `go movetime ${movetimeMs}`);
+
+      if (depth && depth > 0) {
+        this.send(`go depth ${depth}`);
+      } else {
+        this.send(`go movetime ${movetimeMs}`);
+      }
     });
   }
 
@@ -163,8 +247,9 @@ export class StockfishClient {
     try {
       this.send("quit");
     } catch {
-      // The worker may already be gone.
+      // Worker may already be gone.
     }
+
     this.worker.terminate();
     this.handlers.clear();
     this.errorHandlers.clear();
