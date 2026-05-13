@@ -46,6 +46,9 @@ const trackItems: NavItem[] = [
 
 export function AppSidebar() {
   const path = useRouterState({ select: (r) => r.location.pathname });
+  const conn = useConnection();
+  const games = useGames();
+  const stats = computeStats(games);
   const isActive = (url: string, exact?: boolean) =>
     exact ? path === url : path === url || path.startsWith(url + "/");
 
