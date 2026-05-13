@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/sidebar";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
+import { useConnection, useGames } from "@/lib/chess/hooks";
+import { computeStats } from "@/lib/chess/stats";
 
 type NavItem = { title: string; url: string; icon: typeof LayoutDashboard; exact?: boolean };
 
@@ -44,6 +46,9 @@ const trackItems: NavItem[] = [
 
 export function AppSidebar() {
   const path = useRouterState({ select: (r) => r.location.pathname });
+  const conn = useConnection();
+  const games = useGames();
+  const stats = computeStats(games);
   const isActive = (url: string, exact?: boolean) =>
     exact ? path === url : path === url || path.startsWith(url + "/");
 
@@ -88,21 +93,27 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="h-8 w-8 shrink-0 rounded-full bg-gradient-to-br from-accent to-accent/50 grid place-items-center text-accent-foreground font-display font-bold text-sm">
-              M
+        {conn ? (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="h-8 w-8 shrink-0 rounded-full bg-gradient-to-br from-accent to-accent/50 grid place-items-center text-accent-foreground font-display font-bold text-sm uppercase">
+                {conn.username.charAt(0)}
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-medium truncate">{conn.username}</div>
+                <div className="text-[10px] text-muted-foreground font-mono">
+                  {stats.rating ?? "—"} · {conn.platform}
+                </div>
+              </div>
             </div>
-            <div className="min-w-0">
-              <div className="text-xs font-medium truncate">magnusfan_99</div>
-              <div className="text-[10px] text-muted-foreground font-mono">1812 · chess.com</div>
-            </div>
+            <Badge variant="outline" className="font-mono text-[9px] gap-1 px-1.5 py-0.5">
+              <Plug className="h-2.5 w-2.5 text-accent" />
+              <span className="hidden sm:inline">linked</span>
+            </Badge>
           </div>
-          <Badge variant="outline" className="font-mono text-[9px] gap-1 px-1.5 py-0.5">
-            <Plug className="h-2.5 w-2.5" />
-            <span className="hidden sm:inline">linked</span>
-          </Badge>
-        </div>
+        ) : (
+          <div className="text-[11px] text-muted-foreground px-1">Not connected</div>
+        )}
       </SidebarFooter>
     </Sidebar>
   );
