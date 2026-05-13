@@ -107,11 +107,15 @@ const STOCKFISH_DEPTH_OPTIONS = [
   { value: 14, label: "Depth 14", note: "Deep" },
 ] as const;
 const STOCKFISH_WORKER_LIMIT = 2;
+const FAST_SCAN_DEPTH = 6;
+const FAST_SCAN_TIMEOUT_MS = 900;
+const ANALYSIS_UI_UPDATE_INTERVAL = 4;
+const DEEPEN_UI_UPDATE_INTERVAL = 2;
 const STOCKFISH_TIMEOUT_BY_DEPTH: Record<number, number> = {
-  8: 10000,
-  10: 16000,
-  12: 28000,
-  14: 45000,
+  8: 1200,
+  10: 2500,
+  12: 5000,
+  14: 9000,
 };
 
 function formatDate(ts: number) {
@@ -318,6 +322,48 @@ function skippedMoveAnalysis(
     evalAfterWhite: after.whiteCp,
     engineError: before.error ?? after.error,
   };
+}
+
+function bestMoveMatches(move: ReviewMove, evaluation: EngineEvaluation) {
+  return Boolean(evaluation.bestMove && move.uci === evaluation.bestMove.toLowerCase());
+}
+
+function exactBestMoveAnalysis(
+  move: ReviewMove,
+  best: PositionEvaluation,
+  after: PositionEvaluation,
+): MoveAnalysis {
+  const bestEval = evaluationToCentipawns(best);
+  const evalAfterWhite = after.whiteCp;
+  const evalAfterForMover =
+    evalAfterWhite == null ? null : move.color === "white" ? evalAfterWhite : -evalAfterWhite;
+
+  return {
+    annotation: best.mate != null || (bestEval ?? 0) >= 300 ? "brilliancy" : "good",
+    bestMove: best.bestMove,
+    bestSan: sanFromUci(move.before, best.bestMove),
+    depth: Math.max(best.depth, after.depth),
+    loss: 0,
+    evalAfter: evalAfterForMover,
+    evalBest: bestEval,
+    evalBeforeWhite: best.whiteCp,
+    evalAfterWhite,
+  };
+}
+
+function isSuspiciousMove(move: ReviewMove, moveAnalysis: MoveAnalysis) {
+  if (moveAnalysis.engineError) return false;
+  if (
+    moveAnalysis.annotation === "inaccuracy" ||
+    moveAnalysis.annotation === "mistake" ||
+    moveAnalysis.annotation === "blunder"
+  ) {
+    return true;
+  }
+
+  const bestMove = moveAnalysis.bestMove?.toLowerCase();
+  if (!bestMove || move.uci === bestMove) return false;
+  return (moveAnalysis.loss ?? 0) >= 45;
 }
 
 function summarizeAnalysis(analysis: Record<number, MoveAnalysis>) {
@@ -581,6 +627,7 @@ function GameReviewPage() {
   const notationRef = useRef<HTMLDivElement>(null);
   const zoomScrollIntentRef = useRef(false);
   const previousEffectiveZoomRef = useRef(86);
+  const evaluationCacheRef = useRef(new Map<string, PositionEvaluation>());
   const [selectedPly, setSelectedPly] = useState(0);
   const [boardZoom, setBoardZoom] = useState(86);
   const [engineDepth, setEngineDepth] = useState(10);
@@ -769,15 +816,55 @@ function GameReviewPage() {
     if (!moves.length || analyzeState.status === "running") return;
     const fens = [moves[0].before, ...moves.map((move) => move.after)];
     const evaluations: PositionEvaluation[] = [];
-    const classifiedMoves = new Set<number>();
+    const fastClassifiedMoves = new Set<number>();
+    const suspiciousMoveIndexes = new Set<number>();
     const workerCount = Math.min(STOCKFISH_WORKER_LIMIT, fens.length);
-    const positionTimeoutMs = STOCKFISH_TIMEOUT_BY_DEPTH[engineDepth] ?? 20000;
+    const deepTimeoutMs = STOCKFISH_TIMEOUT_BY_DEPTH[engineDepth] ?? 9000;
+    let pendingPositionUpdates: Record<number, PositionEvaluation> = {};
+    let pendingMoveUpdates: Record<number, MoveAnalysis> = {};
     let nextPositionIndex = 0;
-    let completedPositions = 0;
+    let completedScanPositions = 0;
+    let completedDeepMoves = 0;
     let skippedPositions = 0;
+    let progress = 0;
+    let totalUnits = fens.length;
 
-    function publishMoveAnalysis(moveIndex: number) {
-      if (moveIndex < 0 || moveIndex >= moves.length || classifiedMoves.has(moveIndex)) return;
+    function queuePositionUpdate(positionIndex: number, positionEvaluation: PositionEvaluation) {
+      pendingPositionUpdates[positionIndex] = positionEvaluation;
+    }
+
+    function queueMoveUpdate(moveIndex: number, moveAnalysis: MoveAnalysis) {
+      const move = moves[moveIndex];
+      if (!move) return;
+      pendingMoveUpdates[move.ply] = moveAnalysis;
+    }
+
+    function flushUpdates(message: string, nextProgress = progress, nextTotal = totalUnits) {
+      const positionUpdates = pendingPositionUpdates;
+      const moveUpdates = pendingMoveUpdates;
+      pendingPositionUpdates = {};
+      pendingMoveUpdates = {};
+
+      if (Object.keys(positionUpdates).length > 0) {
+        setPositionAnalysis((current) => ({ ...current, ...positionUpdates }));
+      }
+
+      if (Object.keys(moveUpdates).length > 0) {
+        setAnalysis((current) => ({ ...current, ...moveUpdates }));
+      }
+
+      setAnalyzeState({
+        status: "running",
+        progress: nextProgress,
+        total: nextTotal,
+        message,
+      });
+    }
+
+    function publishFastMoveAnalysis(moveIndex: number) {
+      if (moveIndex < 0 || moveIndex >= moves.length || fastClassifiedMoves.has(moveIndex)) {
+        return;
+      }
 
       const before = evaluations[moveIndex];
       const after = evaluations[moveIndex + 1];
@@ -789,33 +876,47 @@ function GameReviewPage() {
           ? skippedMoveAnalysis(move, before, after)
           : classifyMove({ move, best: before, after });
 
-      classifiedMoves.add(moveIndex);
-      setAnalysis((current) => ({ ...current, [move.ply]: moveAnalysis }));
+      fastClassifiedMoves.add(moveIndex);
+      if (isSuspiciousMove(move, moveAnalysis)) suspiciousMoveIndexes.add(moveIndex);
+      queueMoveUpdate(moveIndex, moveAnalysis);
     }
 
-    function publishPosition(positionIndex: number, positionEvaluation: PositionEvaluation) {
+    function publishFastPosition(positionIndex: number, positionEvaluation: PositionEvaluation) {
       evaluations[positionIndex] = positionEvaluation;
-      setPositionAnalysis((current) => ({ ...current, [positionIndex]: positionEvaluation }));
-      publishMoveAnalysis(positionIndex - 1);
-      publishMoveAnalysis(positionIndex);
+      queuePositionUpdate(positionIndex, positionEvaluation);
+      publishFastMoveAnalysis(positionIndex - 1);
+      publishFastMoveAnalysis(positionIndex);
     }
 
-    async function evaluatePosition(engine: StockfishClient, fenToEvaluate: string, label: string) {
+    async function evaluateCached(
+      engine: StockfishClient,
+      fenToEvaluate: string,
+      depth: number,
+      timeoutMs: number,
+      label: string,
+    ) {
+      const cacheKey = `${depth}:${fenToEvaluate}`;
+      const cached = evaluationCacheRef.current.get(cacheKey);
+      if (cached) return { engine, positionEvaluation: cached };
+
       try {
+        const positionEvaluation = toPositionEvaluation(
+          fenToEvaluate,
+          await engine.evaluateFen(fenToEvaluate, {
+            depth,
+            timeoutMs,
+          }),
+        );
+        evaluationCacheRef.current.set(cacheKey, positionEvaluation);
         return {
           engine,
-          positionEvaluation: toPositionEvaluation(
-            fenToEvaluate,
-            await engine.evaluateFen(fenToEvaluate, {
-              depth: engineDepth,
-              timeoutMs: positionTimeoutMs,
-            }),
-          ),
+          positionEvaluation,
         };
       } catch (error) {
         engine.dispose();
         skippedPositions += 1;
-        const message = error instanceof Error ? error.message : `Stockfish skipped ${label}`;
+        const message =
+          error instanceof Error ? error.message : `Stockfish skipped ${label} at depth ${depth}`;
         return {
           engine: new StockfishClient(),
           positionEvaluation: emptyPositionEvaluation(fenToEvaluate, message),
@@ -823,7 +924,7 @@ function GameReviewPage() {
       }
     }
 
-    async function runAnalysisWorker(workerIndex: number) {
+    async function runFastScanWorker() {
       let engine = new StockfishClient();
 
       try {
@@ -832,27 +933,106 @@ function GameReviewPage() {
           nextPositionIndex += 1;
           const move = moves[positionIndex - 1] ?? null;
           const label = move ? moveLabel(move) : "starting position";
-
-          setAnalyzeState((current) => ({
-            ...current,
-            message: `Stockfish d${engineDepth} worker ${workerIndex + 1}: ${label}`,
-          }));
-
-          const result = await evaluatePosition(engine, fens[positionIndex], label);
+          const result = await evaluateCached(
+            engine,
+            fens[positionIndex],
+            FAST_SCAN_DEPTH,
+            FAST_SCAN_TIMEOUT_MS,
+            label,
+          );
           engine = result.engine;
-          publishPosition(positionIndex, result.positionEvaluation);
+          publishFastPosition(positionIndex, result.positionEvaluation);
 
-          completedPositions += 1;
-          setAnalyzeState({
-            status: "running",
-            progress: completedPositions,
-            total: fens.length,
-            message: `Analyzed ${completedPositions}/${fens.length} positions at depth ${engineDepth}`,
-          });
+          completedScanPositions += 1;
+          progress = completedScanPositions;
+          if (
+            completedScanPositions % ANALYSIS_UI_UPDATE_INTERVAL === 0 ||
+            completedScanPositions === fens.length
+          ) {
+            flushUpdates(
+              `Quick scanned ${completedScanPositions}/${fens.length} positions at depth ${FAST_SCAN_DEPTH}`,
+            );
+          }
         }
       } finally {
         engine.dispose();
       }
+    }
+
+    async function deepenSuspiciousMoves(moveIndexes: number[]) {
+      let nextSuspiciousIndex = 0;
+
+      async function runDeepenWorker() {
+        let engine = new StockfishClient();
+
+        try {
+          while (nextSuspiciousIndex < moveIndexes.length) {
+            const queueIndex = nextSuspiciousIndex;
+            nextSuspiciousIndex += 1;
+            const moveIndex = moveIndexes[queueIndex];
+            const move = moves[moveIndex];
+            const label = moveLabel(move);
+            const beforeResult = await evaluateCached(
+              engine,
+              move.before,
+              engineDepth,
+              deepTimeoutMs,
+              `${label} before`,
+            );
+            engine = beforeResult.engine;
+            const before = beforeResult.positionEvaluation;
+            evaluations[moveIndex] = before;
+            queuePositionUpdate(moveIndex, before);
+
+            const fastAfter =
+              evaluations[moveIndex + 1] ??
+              emptyPositionEvaluation(move.after, "Fast scan did not finish this position");
+            let moveAnalysis: MoveAnalysis;
+
+            if (before.error) {
+              moveAnalysis = skippedMoveAnalysis(move, before, fastAfter);
+            } else if (bestMoveMatches(move, before)) {
+              moveAnalysis = exactBestMoveAnalysis(move, before, fastAfter);
+            } else {
+              const afterResult = await evaluateCached(
+                engine,
+                move.after,
+                engineDepth,
+                deepTimeoutMs,
+                `${label} after`,
+              );
+              engine = afterResult.engine;
+              const after = afterResult.positionEvaluation;
+              evaluations[moveIndex + 1] = after;
+              queuePositionUpdate(moveIndex + 1, after);
+              moveAnalysis =
+                before.error || after.error
+                  ? skippedMoveAnalysis(move, before, after)
+                  : classifyMove({ move, best: before, after });
+            }
+
+            queueMoveUpdate(moveIndex, moveAnalysis);
+            completedDeepMoves += 1;
+            progress = fens.length + completedDeepMoves;
+            if (
+              completedDeepMoves % DEEPEN_UI_UPDATE_INTERVAL === 0 ||
+              completedDeepMoves === moveIndexes.length
+            ) {
+              flushUpdates(
+                `Deepened ${completedDeepMoves}/${moveIndexes.length} suspicious moves at depth ${engineDepth}`,
+              );
+            }
+          }
+        } finally {
+          engine.dispose();
+        }
+      }
+
+      await Promise.all(
+        Array.from({ length: Math.min(STOCKFISH_WORKER_LIMIT, moveIndexes.length) }, () =>
+          runDeepenWorker(),
+        ),
+      );
     }
 
     setAnalysis({});
@@ -861,29 +1041,66 @@ function GameReviewPage() {
       status: "running",
       progress: 0,
       total: fens.length,
-      message: `Starting Stockfish WASM at depth ${engineDepth}`,
+      message: `Quick scanning ${fens.length} positions at depth ${FAST_SCAN_DEPTH}`,
     });
 
     try {
-      await Promise.all(
-        Array.from({ length: workerCount }, (_, index) => runAnalysisWorker(index)),
+      await Promise.all(Array.from({ length: workerCount }, () => runFastScanWorker()));
+      flushUpdates(
+        `Quick scan complete - found ${suspiciousMoveIndexes.size} suspicious moves`,
+        fens.length,
+        fens.length,
+      );
+
+      const suspiciousMoves = Array.from(suspiciousMoveIndexes).sort((a, b) => a - b);
+      if (suspiciousMoves.length === 0) {
+        setAnalyzeState({
+          status: "done",
+          progress: fens.length,
+          total: fens.length,
+          message:
+            skippedPositions > 0
+              ? `Quick scan complete - ${skippedPositions} position(s) skipped`
+              : "Quick scan complete - no suspicious moves found",
+        });
+        return;
+      }
+
+      totalUnits = fens.length + suspiciousMoves.length;
+      progress = fens.length;
+      setAnalyzeState({
+        status: "running",
+        progress,
+        total: totalUnits,
+        message: `Deepening ${suspiciousMoves.length} suspicious moves at depth ${engineDepth}`,
+      });
+
+      await deepenSuspiciousMoves(suspiciousMoves);
+      flushUpdates(
+        `Deepened ${suspiciousMoves.length}/${suspiciousMoves.length} suspicious moves at depth ${engineDepth}`,
+        totalUnits,
+        totalUnits,
       );
       setAnalyzeState({
         status: "done",
-        progress: fens.length,
-        total: fens.length,
+        progress: totalUnits,
+        total: totalUnits,
         message:
           skippedPositions > 0
-            ? `Stockfish depth ${engineDepth} complete - ${skippedPositions} position(s) skipped`
-            : `Stockfish depth ${engineDepth} complete`,
+            ? `Stockfish review complete - ${skippedPositions} position(s) skipped`
+            : `Stockfish review complete - quick scan plus depth ${engineDepth} checks`,
       });
     } catch (error) {
+      flushUpdates("Stockfish analysis stopped", progress, totalUnits);
       setAnalyzeState({
         status: "error",
-        progress: 0,
-        total: fens.length,
+        progress,
+        total: totalUnits,
         message: error instanceof Error ? error.message : "Stockfish analysis failed",
       });
+    } finally {
+      pendingPositionUpdates = {};
+      pendingMoveUpdates = {};
     }
   }
 
