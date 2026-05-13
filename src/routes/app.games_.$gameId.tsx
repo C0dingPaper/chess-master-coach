@@ -357,7 +357,7 @@ function VariationLine({
   if (moves.length === 0) return null;
 
   return (
-    <div className="mt-4 rounded-md border border-accent/30 bg-accent/[0.04] p-3">
+    <div className="rounded-md border border-accent/30 bg-accent/[0.04] p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="font-mono text-[10px] uppercase tracking-widest text-accent">Sub moves</div>
         <div className="text-[11px] text-muted-foreground">Right-click a move to delete</div>
@@ -434,7 +434,10 @@ function GameReviewPage() {
   const games = useGames();
   const game = games.find((item) => item.id === decodedGameId);
   const moves = useMemo(() => (game ? buildReviewMoves(game) : []), [game]);
+  const boardPanelRef = useRef<HTMLDivElement>(null);
   const notationRef = useRef<HTMLDivElement>(null);
+  const zoomScrollIntentRef = useRef(false);
+  const previousEffectiveZoomRef = useRef(86);
   const [selectedPly, setSelectedPly] = useState(0);
   const [boardZoom, setBoardZoom] = useState(86);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -470,6 +473,28 @@ function GameReviewPage() {
     const active = notationRef.current?.querySelector(`[data-ply="${selectedPly}"]`);
     active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedPly]);
+
+  useEffect(() => {
+    if (!zoomScrollIntentRef.current) {
+      previousEffectiveZoomRef.current = effectiveBoardZoom;
+      return;
+    }
+
+    zoomScrollIntentRef.current = false;
+    const block: ScrollLogicalPosition =
+      effectiveBoardZoom >= previousEffectiveZoomRef.current ? "center" : "nearest";
+    previousEffectiveZoomRef.current = effectiveBoardZoom;
+    const timer = window.setTimeout(() => {
+      boardPanelRef.current?.scrollIntoView({ block, behavior: "smooth" });
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [effectiveBoardZoom]);
+
+  function handleBoardZoomChange(value: number[]) {
+    zoomScrollIntentRef.current = true;
+    setBoardZoom(value[0] ?? 86);
+  }
 
   function resetVariation() {
     setVariationMoves([]);
@@ -647,7 +672,7 @@ function GameReviewPage() {
         }`}
       >
         <div className="space-y-5">
-          <Card className="border-border/60 bg-card/40 p-4">
+          <Card ref={boardPanelRef} className="border-border/60 bg-card/40 p-4">
             <div className="mb-4 flex items-center gap-3 rounded-md border border-border/50 bg-background/40 px-3 py-2">
               <ZoomOut className="h-4 w-4 shrink-0 text-muted-foreground" />
               <Slider
@@ -655,7 +680,7 @@ function GameReviewPage() {
                 min={68}
                 max={boardMaxZoom}
                 step={4}
-                onValueChange={(value) => setBoardZoom(value[0] ?? 86)}
+                onValueChange={handleBoardZoomChange}
                 aria-label="Board size"
                 className="min-w-0 flex-1"
               />
@@ -744,47 +769,6 @@ function GameReviewPage() {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
-
-            <VariationLine
-              moves={variationMoves}
-              onFocus={focusVariation}
-              onDeleteFrom={deleteVariationFrom}
-              onDeleteAll={resetVariation}
-            />
-          </Card>
-
-          <Card className="border-border/60 bg-card/40 p-5">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                  Stockfish
-                </div>
-                <div className="mt-1 text-sm">{analyzeState.message}</div>
-              </div>
-              <Badge variant="outline" className="font-mono text-[10px] uppercase">
-                {progressPct}%
-              </Badge>
-            </div>
-            <Progress value={progressPct} className="h-2" />
-            <div className="mt-5 grid grid-cols-5 gap-2 text-center">
-              {[
-                ["brilliancy", summary.brilliancy],
-                ["good", summary.good],
-                ["inaccuracy", summary.inaccuracy],
-                ["mistake", summary.mistake],
-                ["blunder", summary.blunder],
-              ].map(([kind, count]) => (
-                <div
-                  key={kind}
-                  className={`rounded-md border px-2 py-2 ${annotationClass(kind as AnnotationKind)}`}
-                >
-                  <div className="font-display text-lg font-semibold">{count}</div>
-                  <div className="truncate font-mono text-[9px] uppercase">
-                    {annotationLabel(kind as AnnotationKind)}
-                  </div>
-                </div>
-              ))}
-            </div>
           </Card>
         </div>
 
@@ -850,7 +834,7 @@ function GameReviewPage() {
             </div>
           </div>
 
-          <div className="border-t border-border/60 p-4">
+          <div className="space-y-4 border-t border-border/60 p-4">
             <div className={`rounded-md border p-3 ${annotationClass(selectedAnnotation, true)}`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -882,6 +866,47 @@ function GameReviewPage() {
                   Best move: {selectedAnalysis.bestSan}
                 </div>
               )}
+            </div>
+
+            <VariationLine
+              moves={variationMoves}
+              onFocus={focusVariation}
+              onDeleteFrom={deleteVariationFrom}
+              onDeleteAll={resetVariation}
+            />
+
+            <div className="rounded-md border border-border/60 bg-background/35 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Stockfish
+                  </div>
+                  <div className="mt-1 truncate text-sm">{analyzeState.message}</div>
+                </div>
+                <Badge variant="outline" className="shrink-0 font-mono text-[10px] uppercase">
+                  {progressPct}%
+                </Badge>
+              </div>
+              <Progress value={progressPct} className="h-2" />
+              <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
+                {[
+                  ["brilliancy", summary.brilliancy],
+                  ["good", summary.good],
+                  ["inaccuracy", summary.inaccuracy],
+                  ["mistake", summary.mistake],
+                  ["blunder", summary.blunder],
+                ].map(([kind, count]) => (
+                  <div
+                    key={kind}
+                    className={`rounded-md border px-2 py-2 ${annotationClass(kind as AnnotationKind)}`}
+                  >
+                    <div className="font-display text-lg font-semibold">{count}</div>
+                    <div className="truncate font-mono text-[9px] uppercase">
+                      {annotationLabel(kind as AnnotationKind)}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </Card>
