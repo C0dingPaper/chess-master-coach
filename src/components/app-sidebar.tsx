@@ -20,6 +20,8 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +48,7 @@ const trackItems: NavItem[] = [
 
 export function AppSidebar() {
   const path = useRouterState({ select: (r) => r.location.pathname });
+  const { state } = useSidebar();
   const conn = useConnection();
   const games = useGames();
   const stats = computeStats(games);
@@ -54,8 +57,9 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="border-b border-sidebar-border h-14 px-3 flex items-center">
-        <Logo />
+      <SidebarHeader className="flex h-14 flex-row items-center border-b border-sidebar-border px-3">
+        {state === "expanded" && <Logo />}
+        <SidebarTrigger className={state === "collapsed" ? "mx-auto h-8 w-8" : "ml-auto h-8 w-8"} />
       </SidebarHeader>
 
       <SidebarContent className="px-1 py-2">

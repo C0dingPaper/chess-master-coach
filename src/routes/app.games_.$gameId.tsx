@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
+import { useSidebar } from "@/components/ui/sidebar";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -429,6 +430,7 @@ function GameReviewPage() {
   const { gameId } = Route.useParams();
   const decodedGameId = decodeURIComponent(gameId);
   const isClient = useIsClient();
+  const { state: sidebarState } = useSidebar();
   const games = useGames();
   const game = games.find((item) => item.id === decodedGameId);
   const moves = useMemo(() => (game ? buildReviewMoves(game) : []), [game]);
@@ -454,6 +456,10 @@ function GameReviewPage() {
   const fen = latestVariationMove?.after ?? selectedMove?.after ?? DEFAULT_POSITION;
   const progressPct = moves.length ? Math.round((analyzeState.progress / moves.length) * 100) : 0;
   const summary = summarizeAnalysis(analysis);
+  const sidebarCollapsed = sidebarState === "collapsed";
+  const boardMaxZoom = sidebarCollapsed ? 118 : 108;
+  const effectiveBoardZoom = Math.min(boardZoom, boardMaxZoom);
+  const boardBaseSize = sidebarCollapsed ? 680 : 620;
   const movePairs = [];
 
   for (let i = 0; i < moves.length; i += 2) {
@@ -584,7 +590,7 @@ function GameReviewPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl p-6 md:p-10">
+    <div className="mx-auto max-w-[94rem] p-6 transition-[max-width,padding] duration-500 ease-out md:p-10">
       <PageHeader
         eyebrow="Engine review"
         title={`${game.myColor === "white" ? game.whiteUser : game.blackUser} vs ${game.oppName}`}
@@ -633,15 +639,21 @@ function GameReviewPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(320px,500px)_1fr]">
+      <div
+        className={`grid grid-cols-1 gap-8 transition-[grid-template-columns] duration-500 ease-out ${
+          sidebarCollapsed
+            ? "xl:grid-cols-[minmax(420px,760px)_minmax(420px,1fr)]"
+            : "xl:grid-cols-[minmax(340px,620px)_minmax(420px,1fr)]"
+        }`}
+      >
         <div className="space-y-5">
           <Card className="border-border/60 bg-card/40 p-4">
             <div className="mb-4 flex items-center gap-3 rounded-md border border-border/50 bg-background/40 px-3 py-2">
               <ZoomOut className="h-4 w-4 shrink-0 text-muted-foreground" />
               <Slider
-                value={[boardZoom]}
+                value={[effectiveBoardZoom]}
                 min={68}
-                max={100}
+                max={boardMaxZoom}
                 step={4}
                 onValueChange={(value) => setBoardZoom(value[0] ?? 86)}
                 aria-label="Board size"
@@ -649,12 +661,14 @@ function GameReviewPage() {
               />
               <ZoomIn className="h-4 w-4 shrink-0 text-muted-foreground" />
               <Badge variant="outline" className="w-14 justify-center font-mono text-[10px]">
-                {boardZoom}%
+                {effectiveBoardZoom}%
               </Badge>
             </div>
             <div
-              className="mx-auto transition-[max-width] duration-200"
-              style={{ maxWidth: `${Math.round(520 * (boardZoom / 100))}px` }}
+              className={`transition-[max-width,margin] duration-500 ease-out ${
+                sidebarCollapsed ? "xl:mr-auto xl:ml-0" : "mx-auto"
+              }`}
+              style={{ maxWidth: `${Math.round(boardBaseSize * (effectiveBoardZoom / 100))}px` }}
             >
               <div className="aspect-square overflow-hidden rounded-md border border-border/60 bg-muted shadow-elegant">
                 {isClient ? (
