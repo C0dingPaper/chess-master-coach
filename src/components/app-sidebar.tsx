@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/sidebar";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
+import { useConnection, useGames } from "@/lib/chess/hooks";
+import { computeStats } from "@/lib/chess/stats";
 
 type NavItem = { title: string; url: string; icon: typeof LayoutDashboard; exact?: boolean };
 
