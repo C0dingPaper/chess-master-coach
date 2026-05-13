@@ -1,12 +1,8 @@
 import stockfishScriptUrl from "stockfish/bin/stockfish-18-lite-single.js?url";
 import stockfishWasmUrl from "stockfish/bin/stockfish-18-lite-single.wasm?url";
-
-export type EngineEvaluation = {
-  bestMove: string | null;
-  cp: number | null;
-  mate: number | null;
-  depth: number;
-};
+import type { EngineEvaluation } from "@/lib/chess/engine-evaluation";
+export type { EngineEvaluation } from "@/lib/chess/engine-evaluation";
+export { evaluationToCentipawns } from "@/lib/chess/engine-evaluation";
 
 type LineHandler = (line: string) => void;
 type ErrorHandler = (error: Error) => void;
@@ -173,11 +169,4 @@ export class StockfishClient {
     this.handlers.clear();
     this.errorHandlers.clear();
   }
-}
-
-export function evaluationToCentipawns(evaluation: EngineEvaluation) {
-  if (evaluation.cp != null) return evaluation.cp;
-  if (evaluation.mate == null) return null;
-  const sign = evaluation.mate >= 0 ? 1 : -1;
-  return sign * (100000 - Math.min(Math.abs(evaluation.mate), 99) * 100);
 }
