@@ -249,15 +249,23 @@ function selectedSquareStyles(
   move: BoardMove | null,
   annotation: AnnotationKind,
   selectedSquare: string | null,
+  markedSquares: string[],
 ) {
   const styles: Record<string, React.CSSProperties> = {};
-  if (!move && !selectedSquare) return styles;
+  if (!move && !selectedSquare && markedSquares.length === 0) return styles;
   const color = annotationColor(annotation);
+  for (const square of markedSquares) {
+    styles[square] = {
+      boxShadow: "inset 0 0 0 4px oklch(0.78 0.16 75 / 0.9)",
+    };
+  }
   if (move) {
     styles[move.from] = {
+      ...(styles[move.from] ?? {}),
       background: `radial-gradient(circle, ${color} 0%, ${color} 34%, transparent 36%)`,
     };
     styles[move.to] = {
+      ...(styles[move.to] ?? {}),
       background: `linear-gradient(135deg, ${color}, transparent 70%)`,
       boxShadow: `inset 0 0 0 3px ${color}`,
     };
@@ -320,15 +328,17 @@ function VariationMovePill({
             active,
           )}`}
         >
-          <span className="mr-1 text-[10px] opacity-70">
+          <span className="mr-1 rounded border border-current/25 px-1 text-[10px] opacity-80">
             {move.moveNumber}
             {move.color === "black" ? "..." : "."}
           </span>
           {move.san}
         </button>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-48">
-        <ContextMenuLabel className="font-mono text-xs">Sub move {index + 1}</ContextMenuLabel>
+      <ContextMenuContent className="w-52">
+        <ContextMenuLabel className="font-mono text-xs">
+          Sub move {index + 1} · {boardMoveLabel(move)}
+        </ContextMenuLabel>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onDeleteFrom}>
           <Trash2 className="mr-2 h-4 w-4" />
@@ -345,11 +355,13 @@ function VariationMovePill({
 
 function VariationLine({
   moves,
+  origin,
   onFocus,
   onDeleteFrom,
   onDeleteAll,
 }: {
   moves: VariationMove[];
+  origin: string;
   onFocus: (index: number) => void;
   onDeleteFrom: (index: number) => void;
   onDeleteAll: () => void;
@@ -359,8 +371,17 @@ function VariationLine({
   return (
     <div className="rounded-md border border-accent/30 bg-accent/[0.04] p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-accent">Sub moves</div>
-        <div className="text-[11px] text-muted-foreground">Right-click a move to delete</div>
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-widest text-accent">
+            Sub moves
+          </div>
+          <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+            Branch from {origin}
+          </div>
+        </div>
+        <div className="text-right text-[11px] text-muted-foreground">
+          Right-click a move to delete
+        </div>
       </div>
       <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
         {moves.map((move, index) => (
@@ -441,6 +462,7 @@ function GameReviewPage() {
   const [selectedPly, setSelectedPly] = useState(0);
   const [boardZoom, setBoardZoom] = useState(86);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
+  const [markedSquares, setMarkedSquares] = useState<string[]>([]);
   const [variationMoves, setVariationMoves] = useState<VariationMove[]>([]);
   const [analysis, setAnalysis] = useState<Record<number, MoveAnalysis>>({});
   const [analyzeState, setAnalyzeState] = useState<AnalyzeState>({
@@ -473,6 +495,50 @@ function GameReviewPage() {
     const active = notationRef.current?.querySelector(`[data-ply="${selectedPly}"]`);
     active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedPly]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+      ) {
+        return;
+      }
+
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      event.preventDefault();
+      setSelectedSquare(null);
+
+      if (event.key === "ArrowUp") {
+        setVariationMoves([]);
+        setSelectedPly(0);
+        return;
+      }
+
+      if (event.key === "ArrowDown") {
+        setVariationMoves([]);
+        setSelectedPly(moves.length - 1);
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        if (variationMoves.length > 0) {
+          setVariationMoves((current) => current.slice(0, -1));
+          return;
+        }
+        setSelectedPly((current) => Math.max(-1, current - 1));
+        return;
+      }
+
+      if (variationMoves.length === 0) {
+        setSelectedPly((current) => Math.min(moves.length - 1, current + 1));
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [moves.length, variationMoves.length]);
 
   useEffect(() => {
     if (!zoomScrollIntentRef.current) {
@@ -554,6 +620,12 @@ function GameReviewPage() {
     }
 
     if (hasPiece) setSelectedSquare(square);
+  }
+
+  function toggleMarkedSquare(square: string) {
+    setMarkedSquares((current) =>
+      current.includes(square) ? current.filter((item) => item !== square) : [...current, square],
+    );
   }
 
   async function analyzeGame() {
@@ -703,7 +775,21 @@ function GameReviewPage() {
                       position: fen,
                       boardOrientation: game.myColor,
                       allowDragging: true,
-                      allowDrawingArrows: false,
+                      allowDrawingArrows: true,
+                      clearArrowsOnClick: false,
+                      clearArrowsOnPositionChange: false,
+                      arrowOptions: {
+                        color: "oklch(0.78 0.16 75 / 0.9)",
+                        secondaryColor: "oklch(0.82 0.12 205 / 0.85)",
+                        tertiaryColor: "oklch(0.65 0.21 25 / 0.85)",
+                        arrowLengthReducerDenominator: 8,
+                        sameTargetArrowLengthReducerDenominator: 4,
+                        arrowWidthDenominator: 5,
+                        activeArrowWidthMultiplier: 0.9,
+                        opacity: 0.7,
+                        activeOpacity: 0.55,
+                        arrowStartOffset: 0,
+                      },
                       showNotation: true,
                       animationDurationInMs: 160,
                       darkSquareStyle: { backgroundColor: "oklch(0.45 0.05 70)" },
@@ -712,6 +798,7 @@ function GameReviewPage() {
                         displayedMove,
                         selectedAnnotation,
                         selectedSquare,
+                        markedSquares,
                       ),
                       arrows: displayedMove
                         ? [
@@ -726,6 +813,7 @@ function GameReviewPage() {
                         targetSquare ? playBoardMove(sourceSquare, targetSquare) : false,
                       onSquareClick: ({ piece, square }) =>
                         handleSquareClick(square, Boolean(piece)),
+                      onSquareRightClick: ({ square }) => toggleMarkedSquare(square),
                       boardStyle: { width: "100%", height: "100%" },
                     }}
                   />
@@ -870,6 +958,7 @@ function GameReviewPage() {
 
             <VariationLine
               moves={variationMoves}
+              origin={selectedMove ? moveLabel(selectedMove) : "start"}
               onFocus={focusVariation}
               onDeleteFrom={deleteVariationFrom}
               onDeleteAll={resetVariation}
