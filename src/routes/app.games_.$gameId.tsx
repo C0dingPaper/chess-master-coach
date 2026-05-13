@@ -5,6 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useSidebar } from "@/components/ui/sidebar";
 import {
   ContextMenu,
@@ -17,7 +24,7 @@ import {
 import { EmptyConnect } from "@/components/empty-connect";
 import { useGames, useIsClient } from "@/lib/chess/hooks";
 import { evaluationToCentipawns, type EngineEvaluation } from "@/lib/chess/engine-evaluation";
-import { evaluateFenFast } from "@/lib/chess/fast-review-engine";
+import { StockfishClient } from "@/lib/chess/stockfish";
 import type { Color, StoredGame } from "@/lib/chess/types";
 import { Chess, DEFAULT_POSITION, type Move as ChessMove } from "chess.js";
 import {
@@ -93,7 +100,19 @@ type AnalyzeState = {
   message: string;
 };
 
-const FAST_ANALYSIS_BATCH_SIZE = 8;
+const STOCKFISH_DEPTH_OPTIONS = [
+  { value: 8, label: "Depth 8", note: "Quick" },
+  { value: 10, label: "Depth 10", note: "Balanced" },
+  { value: 12, label: "Depth 12", note: "Accurate" },
+  { value: 14, label: "Depth 14", note: "Deep" },
+] as const;
+const STOCKFISH_WORKER_LIMIT = 2;
+const STOCKFISH_TIMEOUT_BY_DEPTH: Record<number, number> = {
+  8: 10000,
+  10: 16000,
+  12: 28000,
+  14: 45000,
+};
 
 function formatDate(ts: number) {
   return new Date(ts * 1000).toLocaleDateString(undefined, {
@@ -206,6 +225,10 @@ function toPositionEvaluation(
     whiteCp: error ? null : evaluationToWhiteCentipawns(fen, evaluation),
     error,
   };
+}
+
+function emptyPositionEvaluation(fen: string, error: string): PositionEvaluation {
+  return toPositionEvaluation(fen, { bestMove: null, cp: null, mate: null, depth: 0 }, error);
 }
 
 function evalBarWhitePercent(cp: number | null) {
@@ -560,6 +583,7 @@ function GameReviewPage() {
   const previousEffectiveZoomRef = useRef(86);
   const [selectedPly, setSelectedPly] = useState(0);
   const [boardZoom, setBoardZoom] = useState(86);
+  const [engineDepth, setEngineDepth] = useState(10);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [markedSquares, setMarkedSquares] = useState<string[]>([]);
   const [variationMoves, setVariationMoves] = useState<VariationMove[]>([]);
@@ -745,9 +769,15 @@ function GameReviewPage() {
     if (!moves.length || analyzeState.status === "running") return;
     const fens = [moves[0].before, ...moves.map((move) => move.after)];
     const evaluations: PositionEvaluation[] = [];
+    const classifiedMoves = new Set<number>();
+    const workerCount = Math.min(STOCKFISH_WORKER_LIMIT, fens.length);
+    const positionTimeoutMs = STOCKFISH_TIMEOUT_BY_DEPTH[engineDepth] ?? 20000;
+    let nextPositionIndex = 0;
+    let completedPositions = 0;
+    let skippedPositions = 0;
 
     function publishMoveAnalysis(moveIndex: number) {
-      if (moveIndex < 0 || moveIndex >= moves.length) return;
+      if (moveIndex < 0 || moveIndex >= moves.length || classifiedMoves.has(moveIndex)) return;
 
       const before = evaluations[moveIndex];
       const after = evaluations[moveIndex + 1];
@@ -759,7 +789,70 @@ function GameReviewPage() {
           ? skippedMoveAnalysis(move, before, after)
           : classifyMove({ move, best: before, after });
 
+      classifiedMoves.add(moveIndex);
       setAnalysis((current) => ({ ...current, [move.ply]: moveAnalysis }));
+    }
+
+    function publishPosition(positionIndex: number, positionEvaluation: PositionEvaluation) {
+      evaluations[positionIndex] = positionEvaluation;
+      setPositionAnalysis((current) => ({ ...current, [positionIndex]: positionEvaluation }));
+      publishMoveAnalysis(positionIndex - 1);
+      publishMoveAnalysis(positionIndex);
+    }
+
+    async function evaluatePosition(engine: StockfishClient, fenToEvaluate: string, label: string) {
+      try {
+        return {
+          engine,
+          positionEvaluation: toPositionEvaluation(
+            fenToEvaluate,
+            await engine.evaluateFen(fenToEvaluate, {
+              depth: engineDepth,
+              timeoutMs: positionTimeoutMs,
+            }),
+          ),
+        };
+      } catch (error) {
+        engine.dispose();
+        skippedPositions += 1;
+        const message = error instanceof Error ? error.message : `Stockfish skipped ${label}`;
+        return {
+          engine: new StockfishClient(),
+          positionEvaluation: emptyPositionEvaluation(fenToEvaluate, message),
+        };
+      }
+    }
+
+    async function runAnalysisWorker(workerIndex: number) {
+      let engine = new StockfishClient();
+
+      try {
+        while (nextPositionIndex < fens.length) {
+          const positionIndex = nextPositionIndex;
+          nextPositionIndex += 1;
+          const move = moves[positionIndex - 1] ?? null;
+          const label = move ? moveLabel(move) : "starting position";
+
+          setAnalyzeState((current) => ({
+            ...current,
+            message: `Stockfish d${engineDepth} worker ${workerIndex + 1}: ${label}`,
+          }));
+
+          const result = await evaluatePosition(engine, fens[positionIndex], label);
+          engine = result.engine;
+          publishPosition(positionIndex, result.positionEvaluation);
+
+          completedPositions += 1;
+          setAnalyzeState({
+            status: "running",
+            progress: completedPositions,
+            total: fens.length,
+            message: `Analyzed ${completedPositions}/${fens.length} positions at depth ${engineDepth}`,
+          });
+        }
+      } finally {
+        engine.dispose();
+      }
     }
 
     setAnalysis({});
@@ -768,43 +861,28 @@ function GameReviewPage() {
       status: "running",
       progress: 0,
       total: fens.length,
-      message: "Starting fast browser review",
+      message: `Starting Stockfish WASM at depth ${engineDepth}`,
     });
 
     try {
-      for (let index = 0; index < fens.length; index += 1) {
-        const move = moves[index - 1] ?? null;
-        const label = move ? moveLabel(move) : "starting position";
-        const positionEvaluation = toPositionEvaluation(fens[index], evaluateFenFast(fens[index]));
-
-        evaluations[index] = positionEvaluation;
-        setPositionAnalysis((current) => ({ ...current, [index]: positionEvaluation }));
-        publishMoveAnalysis(index - 1);
-
-        setAnalyzeState({
-          status: "running",
-          progress: index + 1,
-          total: fens.length,
-          message: `Reviewed ${label}`,
-        });
-
-        if ((index + 1) % FAST_ANALYSIS_BATCH_SIZE === 0) {
-          await new Promise((resolve) => window.setTimeout(resolve, 0));
-        }
-      }
-
+      await Promise.all(
+        Array.from({ length: workerCount }, (_, index) => runAnalysisWorker(index)),
+      );
       setAnalyzeState({
         status: "done",
         progress: fens.length,
         total: fens.length,
-        message: "Fast browser review complete",
+        message:
+          skippedPositions > 0
+            ? `Stockfish depth ${engineDepth} complete - ${skippedPositions} position(s) skipped`
+            : `Stockfish depth ${engineDepth} complete`,
       });
     } catch (error) {
       setAnalyzeState({
         status: "error",
         progress: 0,
         total: fens.length,
-        message: error instanceof Error ? error.message : "Fast browser review failed",
+        message: error instanceof Error ? error.message : "Stockfish analysis failed",
       });
     }
   }
@@ -845,6 +923,22 @@ function GameReviewPage() {
                 Games
               </a>
             </Button>
+            <Select
+              value={String(engineDepth)}
+              onValueChange={(value) => setEngineDepth(Number(value))}
+              disabled={analyzeState.status === "running"}
+            >
+              <SelectTrigger className="h-9 w-[150px] border-border/70 bg-background/60 font-mono text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STOCKFISH_DEPTH_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={String(option.value)}>
+                    {option.label} - {option.note}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               size="sm"
               onClick={analyzeGame}
@@ -856,7 +950,7 @@ function GameReviewPage() {
               ) : (
                 <BrainCircuit className="mr-1.5 h-4 w-4" />
               )}
-              Analyze
+              Analyze d{engineDepth}
             </Button>
           </div>
         }
@@ -1120,13 +1214,18 @@ function GameReviewPage() {
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                    Browser engine
+                    Stockfish WASM
                   </div>
                   <div className="mt-1 truncate text-sm">{analyzeState.message}</div>
                 </div>
-                <Badge variant="outline" className="shrink-0 font-mono text-[10px] uppercase">
-                  {progressPct}%
-                </Badge>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge variant="outline" className="font-mono text-[10px] uppercase">
+                    d{engineDepth}
+                  </Badge>
+                  <Badge variant="outline" className="font-mono text-[10px] uppercase">
+                    {progressPct}%
+                  </Badge>
+                </div>
               </div>
               <Progress value={progressPct} className="h-2" />
               <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
