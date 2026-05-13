@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppTrainRouteImport } from './routes/app.train'
+import { Route as AppSkillsRouteImport } from './routes/app.skills'
 import { Route as AppRepertoireRouteImport } from './routes/app.repertoire'
 import { Route as AppOpeningsRouteImport } from './routes/app.openings'
 import { Route as AppMistakesRouteImport } from './routes/app.mistakes'
@@ -36,6 +37,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppTrainRoute = AppTrainRouteImport.update({
   id: '/train',
   path: '/train',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSkillsRoute = AppSkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRepertoireRoute = AppRepertoireRouteImport.update({
@@ -66,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/app/mistakes': typeof AppMistakesRoute
   '/app/openings': typeof AppOpeningsRoute
   '/app/repertoire': typeof AppRepertoireRoute
+  '/app/skills': typeof AppSkillsRoute
   '/app/train': typeof AppTrainRoute
   '/app/': typeof AppIndexRoute
 }
@@ -75,6 +82,7 @@ export interface FileRoutesByTo {
   '/app/mistakes': typeof AppMistakesRoute
   '/app/openings': typeof AppOpeningsRoute
   '/app/repertoire': typeof AppRepertoireRoute
+  '/app/skills': typeof AppSkillsRoute
   '/app/train': typeof AppTrainRoute
   '/app': typeof AppIndexRoute
 }
@@ -86,6 +94,7 @@ export interface FileRoutesById {
   '/app/mistakes': typeof AppMistakesRoute
   '/app/openings': typeof AppOpeningsRoute
   '/app/repertoire': typeof AppRepertoireRoute
+  '/app/skills': typeof AppSkillsRoute
   '/app/train': typeof AppTrainRoute
   '/app/': typeof AppIndexRoute
 }
@@ -98,6 +107,7 @@ export interface FileRouteTypes {
     | '/app/mistakes'
     | '/app/openings'
     | '/app/repertoire'
+    | '/app/skills'
     | '/app/train'
     | '/app/'
   fileRoutesByTo: FileRoutesByTo
@@ -107,6 +117,7 @@ export interface FileRouteTypes {
     | '/app/mistakes'
     | '/app/openings'
     | '/app/repertoire'
+    | '/app/skills'
     | '/app/train'
     | '/app'
   id:
@@ -117,6 +128,7 @@ export interface FileRouteTypes {
     | '/app/mistakes'
     | '/app/openings'
     | '/app/repertoire'
+    | '/app/skills'
     | '/app/train'
     | '/app/'
   fileRoutesById: FileRoutesById
@@ -156,6 +168,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTrainRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/skills': {
+      id: '/app/skills'
+      path: '/skills'
+      fullPath: '/app/skills'
+      preLoaderRoute: typeof AppSkillsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/repertoire': {
       id: '/app/repertoire'
       path: '/repertoire'
@@ -192,6 +211,7 @@ interface AppRouteChildren {
   AppMistakesRoute: typeof AppMistakesRoute
   AppOpeningsRoute: typeof AppOpeningsRoute
   AppRepertoireRoute: typeof AppRepertoireRoute
+  AppSkillsRoute: typeof AppSkillsRoute
   AppTrainRoute: typeof AppTrainRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -201,6 +221,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppMistakesRoute: AppMistakesRoute,
   AppOpeningsRoute: AppOpeningsRoute,
   AppRepertoireRoute: AppRepertoireRoute,
+  AppSkillsRoute: AppSkillsRoute,
   AppTrainRoute: AppTrainRoute,
   AppIndexRoute: AppIndexRoute,
 }
