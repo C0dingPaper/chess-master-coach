@@ -9,38 +9,164 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppTrainRouteImport } from './routes/app.train'
+import { Route as AppSkillsRouteImport } from './routes/app.skills'
+import { Route as AppRepertoireRouteImport } from './routes/app.repertoire'
+import { Route as AppOpeningsRouteImport } from './routes/app.openings'
+import { Route as AppMistakesRouteImport } from './routes/app.mistakes'
+import { Route as AppGamesRouteImport } from './routes/app.games'
 
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppRoute = AppRouteImport.update({
+  id: '/app',
+  path: '/app',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTrainRoute = AppTrainRouteImport.update({
+  id: '/train',
+  path: '/train',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSkillsRoute = AppSkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRepertoireRoute = AppRepertoireRouteImport.update({
+  id: '/repertoire',
+  path: '/repertoire',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppOpeningsRoute = AppOpeningsRouteImport.update({
+  id: '/openings',
+  path: '/openings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMistakesRoute = AppMistakesRouteImport.update({
+  id: '/mistakes',
+  path: '/mistakes',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppGamesRoute = AppGamesRouteImport.update({
+  id: '/games',
+  path: '/games',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/app': typeof AppRouteWithChildren
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/app/games': typeof AppGamesRoute
+  '/app/mistakes': typeof AppMistakesRoute
+  '/app/openings': typeof AppOpeningsRoute
+  '/app/repertoire': typeof AppRepertoireRoute
+  '/app/skills': typeof AppSkillsRoute
+  '/app/train': typeof AppTrainRoute
+  '/app/': typeof AppIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/app/games': typeof AppGamesRoute
+  '/app/mistakes': typeof AppMistakesRoute
+  '/app/openings': typeof AppOpeningsRoute
+  '/app/repertoire': typeof AppRepertoireRoute
+  '/app/skills': typeof AppSkillsRoute
+  '/app/train': typeof AppTrainRoute
+  '/app': typeof AppIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/app': typeof AppRouteWithChildren
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/app/games': typeof AppGamesRoute
+  '/app/mistakes': typeof AppMistakesRoute
+  '/app/openings': typeof AppOpeningsRoute
+  '/app/repertoire': typeof AppRepertoireRoute
+  '/app/skills': typeof AppSkillsRoute
+  '/app/train': typeof AppTrainRoute
+  '/app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/app'
+    | '/sitemap.xml'
+    | '/app/games'
+    | '/app/mistakes'
+    | '/app/openings'
+    | '/app/repertoire'
+    | '/app/skills'
+    | '/app/train'
+    | '/app/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/sitemap.xml'
+    | '/app/games'
+    | '/app/mistakes'
+    | '/app/openings'
+    | '/app/repertoire'
+    | '/app/skills'
+    | '/app/train'
+    | '/app'
+  id:
+    | '__root__'
+    | '/'
+    | '/app'
+    | '/sitemap.xml'
+    | '/app/games'
+    | '/app/mistakes'
+    | '/app/openings'
+    | '/app/repertoire'
+    | '/app/skills'
+    | '/app/train'
+    | '/app/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app': {
+      id: '/app'
+      path: '/app'
+      fullPath: '/app'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +174,85 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/': {
+      id: '/app/'
+      path: '/'
+      fullPath: '/app/'
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/train': {
+      id: '/app/train'
+      path: '/train'
+      fullPath: '/app/train'
+      preLoaderRoute: typeof AppTrainRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/skills': {
+      id: '/app/skills'
+      path: '/skills'
+      fullPath: '/app/skills'
+      preLoaderRoute: typeof AppSkillsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/repertoire': {
+      id: '/app/repertoire'
+      path: '/repertoire'
+      fullPath: '/app/repertoire'
+      preLoaderRoute: typeof AppRepertoireRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/openings': {
+      id: '/app/openings'
+      path: '/openings'
+      fullPath: '/app/openings'
+      preLoaderRoute: typeof AppOpeningsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/mistakes': {
+      id: '/app/mistakes'
+      path: '/mistakes'
+      fullPath: '/app/mistakes'
+      preLoaderRoute: typeof AppMistakesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/games': {
+      id: '/app/games'
+      path: '/games'
+      fullPath: '/app/games'
+      preLoaderRoute: typeof AppGamesRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
+interface AppRouteChildren {
+  AppGamesRoute: typeof AppGamesRoute
+  AppMistakesRoute: typeof AppMistakesRoute
+  AppOpeningsRoute: typeof AppOpeningsRoute
+  AppRepertoireRoute: typeof AppRepertoireRoute
+  AppSkillsRoute: typeof AppSkillsRoute
+  AppTrainRoute: typeof AppTrainRoute
+  AppIndexRoute: typeof AppIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppGamesRoute: AppGamesRoute,
+  AppMistakesRoute: AppMistakesRoute,
+  AppOpeningsRoute: AppOpeningsRoute,
+  AppRepertoireRoute: AppRepertoireRoute,
+  AppSkillsRoute: AppSkillsRoute,
+  AppTrainRoute: AppTrainRoute,
+  AppIndexRoute: AppIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
