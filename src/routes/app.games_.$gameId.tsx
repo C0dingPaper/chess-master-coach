@@ -96,6 +96,12 @@ type AnalyzeState = {
   message: string;
 };
 
+const FAST_ANALYSIS_MOVETIME_MS = 60;
+const FAST_ANALYSIS_TIMEOUT_MS = 5000;
+const RETRY_ANALYSIS_MOVETIME_MS = 80;
+const RETRY_ANALYSIS_TIMEOUT_MS = 7000;
+const MAX_ANALYSIS_WORKERS = 3;
+
 function formatDate(ts: number) {
   return new Date(ts * 1000).toLocaleDateString(undefined, {
     month: "short",
@@ -748,33 +754,46 @@ function GameReviewPage() {
 
   async function analyzeGame() {
     if (!moves.length || analyzeState.status === "running") return;
-    let engine: StockfishClient | null = null;
     const fens = [moves[0].before, ...moves.map((move) => move.after)];
     const evaluations: PositionEvaluation[] = [];
+    const classifiedMoves = new Set<number>();
+    const workerCount = Math.min(
+      MAX_ANALYSIS_WORKERS,
+      fens.length,
+      Math.max(1, Math.floor((window.navigator.hardwareConcurrency || 4) / 2)),
+    );
+    let nextPositionIndex = 0;
+    let completedPositions = 0;
     let skippedPositions = 0;
 
-    async function restartEngine() {
-      engine?.dispose();
-      engine = new StockfishClient();
-      return engine;
-    }
-
-    async function evaluatePosition(fenToEvaluate: string, label: string) {
-      const activeEngine = engine ?? (await restartEngine());
-
+    async function evaluatePosition(engine: StockfishClient, fenToEvaluate: string, label: string) {
       try {
-        return toPositionEvaluation(
-          fenToEvaluate,
-          await activeEngine.evaluateFen(fenToEvaluate, { movetimeMs: 130, timeoutMs: 30000 }),
-        );
-      } catch (firstError) {
-        const retryEngine = await restartEngine();
-        try {
-          return toPositionEvaluation(
+        return {
+          engine,
+          positionEvaluation: toPositionEvaluation(
             fenToEvaluate,
-            await retryEngine.evaluateFen(fenToEvaluate, { movetimeMs: 180, timeoutMs: 50000 }),
-          );
+            await engine.evaluateFen(fenToEvaluate, {
+              movetimeMs: FAST_ANALYSIS_MOVETIME_MS,
+              timeoutMs: FAST_ANALYSIS_TIMEOUT_MS,
+            }),
+          ),
+        };
+      } catch (firstError) {
+        engine.dispose();
+        const retryEngine = new StockfishClient();
+        try {
+          return {
+            engine: retryEngine,
+            positionEvaluation: toPositionEvaluation(
+              fenToEvaluate,
+              await retryEngine.evaluateFen(fenToEvaluate, {
+                movetimeMs: RETRY_ANALYSIS_MOVETIME_MS,
+                timeoutMs: RETRY_ANALYSIS_TIMEOUT_MS,
+              }),
+            ),
+          };
         } catch (secondError) {
+          retryEngine.dispose();
           skippedPositions += 1;
           const message =
             secondError instanceof Error
@@ -782,8 +801,68 @@ function GameReviewPage() {
               : firstError instanceof Error
                 ? firstError.message
                 : `Stockfish skipped ${label}`;
-          return emptyPositionEvaluation(fenToEvaluate, message);
+          return {
+            engine: new StockfishClient(),
+            positionEvaluation: emptyPositionEvaluation(fenToEvaluate, message),
+          };
         }
+      }
+    }
+
+    function publishMoveAnalysis(moveIndex: number) {
+      if (moveIndex < 0 || moveIndex >= moves.length || classifiedMoves.has(moveIndex)) return;
+
+      const before = evaluations[moveIndex];
+      const after = evaluations[moveIndex + 1];
+      if (!before || !after) return;
+
+      const move = moves[moveIndex];
+      const moveAnalysis =
+        before.error || after.error
+          ? skippedMoveAnalysis(move, before, after)
+          : classifyMove({ move, best: before, after });
+
+      classifiedMoves.add(moveIndex);
+      setAnalysis((current) => ({ ...current, [move.ply]: moveAnalysis }));
+    }
+
+    function publishPosition(positionIndex: number, positionEvaluation: PositionEvaluation) {
+      evaluations[positionIndex] = positionEvaluation;
+      setPositionAnalysis((current) => ({ ...current, [positionIndex]: positionEvaluation }));
+      publishMoveAnalysis(positionIndex - 1);
+      publishMoveAnalysis(positionIndex);
+    }
+
+    async function runAnalysisWorker(workerIndex: number) {
+      let engine = new StockfishClient();
+
+      try {
+        while (nextPositionIndex < fens.length) {
+          const positionIndex = nextPositionIndex;
+          nextPositionIndex += 1;
+          const move = moves[positionIndex - 1] ?? null;
+          const label = move ? moveLabel(move) : "starting position";
+
+          setAnalyzeState((current) => ({
+            ...current,
+            message: `Worker ${workerIndex + 1}: ${label}`,
+          }));
+
+          const result = await evaluatePosition(engine, fens[positionIndex], label);
+          engine = result.engine;
+          const { positionEvaluation } = result;
+          publishPosition(positionIndex, positionEvaluation);
+
+          completedPositions += 1;
+          setAnalyzeState({
+            status: "running",
+            progress: completedPositions,
+            total: fens.length,
+            message: `Analyzed ${completedPositions}/${fens.length} positions`,
+          });
+        }
+      } finally {
+        engine.dispose();
       }
     }
 
@@ -793,49 +872,21 @@ function GameReviewPage() {
       status: "running",
       progress: 0,
       total: fens.length,
-      message: "Starting Stockfish",
+      message: `Starting ${workerCount} Stockfish worker${workerCount === 1 ? "" : "s"}`,
     });
 
     try {
-      engine = new StockfishClient();
-      for (let index = 0; index < fens.length; index += 1) {
-        const move = moves[index - 1] ?? null;
-        const label = move ? moveLabel(move) : "starting position";
-        setAnalyzeState({
-          status: "running",
-          progress: index,
-          total: fens.length,
-          message: `Analyzing ${label}`,
-        });
-
-        const positionEvaluation = await evaluatePosition(fens[index], label);
-        evaluations[index] = positionEvaluation;
-        setPositionAnalysis((current) => ({ ...current, [index]: positionEvaluation }));
-
-        if (move && evaluations[index - 1]) {
-          const before = evaluations[index - 1];
-          const moveAnalysis =
-            before.error || positionEvaluation.error
-              ? skippedMoveAnalysis(move, before, positionEvaluation)
-              : classifyMove({ move, best: before, after: positionEvaluation });
-          setAnalysis((current) => ({ ...current, [move.ply]: moveAnalysis }));
-        }
-
-        setAnalyzeState({
-          status: "running",
-          progress: index + 1,
-          total: fens.length,
-          message: `Analyzed ${label}`,
-        });
-      }
+      await Promise.all(
+        Array.from({ length: workerCount }, (_, index) => runAnalysisWorker(index)),
+      );
       setAnalyzeState({
         status: "done",
         progress: fens.length,
         total: fens.length,
         message:
           skippedPositions > 0
-            ? `Full game analysis complete - ${skippedPositions} position(s) skipped`
-            : "Full game analysis complete",
+            ? `Fast game analysis complete - ${skippedPositions} position(s) skipped`
+            : "Fast game analysis complete",
       });
     } catch (error) {
       setAnalyzeState({
@@ -844,8 +895,6 @@ function GameReviewPage() {
         total: fens.length,
         message: error instanceof Error ? error.message : "Stockfish analysis failed",
       });
-    } finally {
-      engine?.dispose();
     }
   }
 
