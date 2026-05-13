@@ -19,6 +19,7 @@ import { Route as AppRepertoireRouteImport } from './routes/app.repertoire'
 import { Route as AppOpeningsRouteImport } from './routes/app.openings'
 import { Route as AppMistakesRouteImport } from './routes/app.mistakes'
 import { Route as AppGamesRouteImport } from './routes/app.games'
+import { Route as AppGamesGameIdRouteImport } from './routes/app.games_.$gameId'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -70,6 +71,11 @@ const AppGamesRoute = AppGamesRouteImport.update({
   path: '/games',
   getParentRoute: () => AppRoute,
 } as any)
+const AppGamesGameIdRoute = AppGamesGameIdRouteImport.update({
+  id: '/games_/$gameId',
+  path: '/games/$gameId',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/app/skills': typeof AppSkillsRoute
   '/app/train': typeof AppTrainRoute
   '/app/': typeof AppIndexRoute
+  '/app/games/$gameId': typeof AppGamesGameIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -93,6 +100,7 @@ export interface FileRoutesByTo {
   '/app/skills': typeof AppSkillsRoute
   '/app/train': typeof AppTrainRoute
   '/app': typeof AppIndexRoute
+  '/app/games/$gameId': typeof AppGamesGameIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -106,6 +114,7 @@ export interface FileRoutesById {
   '/app/skills': typeof AppSkillsRoute
   '/app/train': typeof AppTrainRoute
   '/app/': typeof AppIndexRoute
+  '/app/games_/$gameId': typeof AppGamesGameIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -120,6 +129,7 @@ export interface FileRouteTypes {
     | '/app/skills'
     | '/app/train'
     | '/app/'
+    | '/app/games/$gameId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -131,6 +141,7 @@ export interface FileRouteTypes {
     | '/app/skills'
     | '/app/train'
     | '/app'
+    | '/app/games/$gameId'
   id:
     | '__root__'
     | '/'
@@ -143,6 +154,7 @@ export interface FileRouteTypes {
     | '/app/skills'
     | '/app/train'
     | '/app/'
+    | '/app/games_/$gameId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -223,6 +235,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppGamesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/games_/$gameId': {
+      id: '/app/games_/$gameId'
+      path: '/games/$gameId'
+      fullPath: '/app/games/$gameId'
+      preLoaderRoute: typeof AppGamesGameIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -234,6 +253,7 @@ interface AppRouteChildren {
   AppSkillsRoute: typeof AppSkillsRoute
   AppTrainRoute: typeof AppTrainRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppGamesGameIdRoute: typeof AppGamesGameIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -244,6 +264,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSkillsRoute: AppSkillsRoute,
   AppTrainRoute: AppTrainRoute,
   AppIndexRoute: AppIndexRoute,
+  AppGamesGameIdRoute: AppGamesGameIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

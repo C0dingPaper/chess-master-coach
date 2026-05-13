@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyConnect } from "@/components/empty-connect";
 import { useConnection, useGames } from "@/lib/chess/hooks";
 import type { StoredGame } from "@/lib/chess/types";
-import { Download, ExternalLink, Filter } from "lucide-react";
+import { ArrowUpRight, Download, Filter } from "lucide-react";
 import { useMemo, useState } from "react";
 
 export const Route = createFileRoute("/app/games")({
@@ -83,7 +83,7 @@ function GamesPage() {
       <PageHeader
         eyebrow="Game history"
         title="My games"
-        description={`${games.length} imported ${conn.platform} games. Open a row to review the original game.`}
+        description={`${games.length} imported ${conn.platform} games. Open a row to review it inside NeverPay4Chess.`}
         actions={
           <>
             <Button variant="outline" size="sm">
@@ -180,8 +180,12 @@ function GamesPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Button variant="ghost" size="sm" asChild>
-                      <a href={g.url} target="_blank" rel="noreferrer">
-                        Review <ExternalLink className="ml-1 h-3.5 w-3.5" />
+                      <a
+                        href={`/app/games/${encodeURIComponent(g.id)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Review <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
                       </a>
                     </Button>
                   </td>
