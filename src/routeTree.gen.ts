@@ -15,6 +15,7 @@ import { Route as AppIndexRouteImport } from './routes/app.index'
 import { Route as AppTrainRouteImport } from './routes/app.train'
 import { Route as AppRepertoireRouteImport } from './routes/app.repertoire'
 import { Route as AppOpeningsRouteImport } from './routes/app.openings'
+import { Route as AppMistakesRouteImport } from './routes/app.mistakes'
 import { Route as AppGamesRouteImport } from './routes/app.games'
 
 const AppRoute = AppRouteImport.update({
@@ -47,6 +48,11 @@ const AppOpeningsRoute = AppOpeningsRouteImport.update({
   path: '/openings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMistakesRoute = AppMistakesRouteImport.update({
+  id: '/mistakes',
+  path: '/mistakes',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppGamesRoute = AppGamesRouteImport.update({
   id: '/games',
   path: '/games',
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
   '/app/games': typeof AppGamesRoute
+  '/app/mistakes': typeof AppMistakesRoute
   '/app/openings': typeof AppOpeningsRoute
   '/app/repertoire': typeof AppRepertoireRoute
   '/app/train': typeof AppTrainRoute
@@ -65,6 +72,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/app/games': typeof AppGamesRoute
+  '/app/mistakes': typeof AppMistakesRoute
   '/app/openings': typeof AppOpeningsRoute
   '/app/repertoire': typeof AppRepertoireRoute
   '/app/train': typeof AppTrainRoute
@@ -75,6 +83,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
   '/app/games': typeof AppGamesRoute
+  '/app/mistakes': typeof AppMistakesRoute
   '/app/openings': typeof AppOpeningsRoute
   '/app/repertoire': typeof AppRepertoireRoute
   '/app/train': typeof AppTrainRoute
@@ -86,6 +95,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/app/games'
+    | '/app/mistakes'
     | '/app/openings'
     | '/app/repertoire'
     | '/app/train'
@@ -94,6 +104,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/app/games'
+    | '/app/mistakes'
     | '/app/openings'
     | '/app/repertoire'
     | '/app/train'
@@ -103,6 +114,7 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/app/games'
+    | '/app/mistakes'
     | '/app/openings'
     | '/app/repertoire'
     | '/app/train'
@@ -158,6 +170,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppOpeningsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/mistakes': {
+      id: '/app/mistakes'
+      path: '/mistakes'
+      fullPath: '/app/mistakes'
+      preLoaderRoute: typeof AppMistakesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/games': {
       id: '/app/games'
       path: '/games'
@@ -170,6 +189,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppGamesRoute: typeof AppGamesRoute
+  AppMistakesRoute: typeof AppMistakesRoute
   AppOpeningsRoute: typeof AppOpeningsRoute
   AppRepertoireRoute: typeof AppRepertoireRoute
   AppTrainRoute: typeof AppTrainRoute
@@ -178,6 +198,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppGamesRoute: AppGamesRoute,
+  AppMistakesRoute: AppMistakesRoute,
   AppOpeningsRoute: AppOpeningsRoute,
   AppRepertoireRoute: AppRepertoireRoute,
   AppTrainRoute: AppTrainRoute,
