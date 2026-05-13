@@ -59,9 +59,51 @@ function RadarChart({ skills }: { skills: Skill[] }) {
           />
         );
       })}
-      <path d={path} fill="var(--gold)" fillOpacity="0.2" stroke="var(--gold)" strokeWidth="2" />
+      <path key={`radar-fill-${path}`} d={path} fill="var(--gold)" fillOpacity="0.2" opacity="0">
+        <animate attributeName="opacity" from="0" to="1" dur="520ms" fill="freeze" />
+      </path>
+      <path
+        key={`radar-line-${path}`}
+        d={path}
+        fill="none"
+        stroke="var(--gold)"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+        pathLength={1}
+        strokeDasharray="1"
+        strokeDashoffset="1"
+      >
+        <animate
+          attributeName="stroke-dashoffset"
+          from="1"
+          to="0"
+          dur="780ms"
+          fill="freeze"
+          calcMode="spline"
+          keyTimes="0;1"
+          keySplines="0.2 0.8 0.2 1"
+        />
+      </path>
       {points.map((p, i) => (
-        <circle key={i} cx={p[0]} cy={p[1]} r="3.5" fill="var(--gold)" />
+        <circle key={i} cx={p[0]} cy={p[1]} r="0" fill="var(--gold)" opacity="0">
+          <animate
+            attributeName="r"
+            from="0"
+            to="3.5"
+            dur="240ms"
+            begin={`${220 + i * 55}ms`}
+            fill="freeze"
+          />
+          <animate
+            attributeName="opacity"
+            from="0"
+            to="1"
+            dur="180ms"
+            begin={`${220 + i * 55}ms`}
+            fill="freeze"
+          />
+        </circle>
       ))}
       {labels.map(([x, y, name], i) => (
         <text
@@ -110,27 +152,63 @@ function RatingChart({ data }: { data: { date: string; rating: number }[] }) {
         </linearGradient>
       </defs>
       <path
+        key={`rating-fill-${path}`}
         d={`${path} L${pts[pts.length - 1].x},${h - pad} L${pts[0].x},${h - pad} Z`}
         fill="url(#ratingfill)"
-      />
+        opacity="0"
+      >
+        <animate attributeName="opacity" from="0" to="1" dur="620ms" begin="160ms" fill="freeze" />
+      </path>
       <path
+        key={`rating-line-${path}`}
         d={path}
         fill="none"
         stroke="var(--gold)"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth="2.5"
-      />
+        pathLength={1}
+        strokeDasharray="1"
+        strokeDashoffset="1"
+      >
+        <animate
+          attributeName="stroke-dashoffset"
+          from="1"
+          to="0"
+          dur="900ms"
+          fill="freeze"
+          calcMode="spline"
+          keyTimes="0;1"
+          keySplines="0.2 0.8 0.2 1"
+        />
+      </path>
       {pts.map((p, i) => (
-        <g key={`${p.date}-${i}`}>
+        <g key={`${p.date}-${i}`} opacity="0">
+          <animate
+            attributeName="opacity"
+            from="0"
+            to="1"
+            dur="220ms"
+            begin={`${260 + i * 65}ms`}
+            fill="freeze"
+          />
           <circle
             cx={p.x}
             cy={p.y}
-            r="4"
+            r="0"
             fill="var(--background)"
             stroke="var(--gold)"
             strokeWidth="2"
-          />
+          >
+            <animate
+              attributeName="r"
+              from="0"
+              to="4"
+              dur="220ms"
+              begin={`${260 + i * 65}ms`}
+              fill="freeze"
+            />
+          </circle>
           <text
             x={p.x}
             y={h - 8}
