@@ -17,6 +17,7 @@ export const Route = createFileRoute("/app/openings")({
 });
 
 type SelectedLine = {
+  color: Color;
   nodes: SerializedNode[];
   index: number;
 };
@@ -34,7 +35,7 @@ function NodeRow({
   node: SerializedNode;
   ancestors?: SerializedNode[];
   depth?: number;
-  onPick: (line: SelectedLine) => void;
+  onPick: (line: Omit<SelectedLine, "color">) => void;
 }) {
   const [open, setOpen] = useState(depth < 2);
   const winRate = node.count ? Math.round((node.wins / node.count) * 100) : 0;
@@ -88,6 +89,47 @@ function NodeRow({
         </div>
       )}
     </div>
+  );
+}
+
+function TreeSection({
+  color,
+  tree,
+  onPick,
+}: {
+  color: Color;
+  tree: SerializedNode;
+  onPick: (line: SelectedLine) => void;
+}) {
+  return (
+    <section className="rounded-md border border-border/50 bg-background/30">
+      <div className="flex items-center justify-between border-b border-border/50 px-3 py-2">
+        <div>
+          <h3 className="font-display text-lg font-semibold capitalize">{color} openings</h3>
+          <p className="text-xs text-muted-foreground">
+            {color === "white" ? "Games where you had White" : "Games where you had Black"}
+          </p>
+        </div>
+        <Badge variant="outline" className="font-mono text-[10px]">
+          {tree.count} games
+        </Badge>
+      </div>
+      <div className="max-h-[380px] overflow-auto p-1">
+        {tree.children.length > 0 ? (
+          tree.children.map((node) => (
+            <NodeRow
+              key={`${color}-${node.san}-${node.fen}`}
+              node={node}
+              onPick={(line) => onPick({ ...line, color })}
+            />
+          ))
+        ) : (
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+            No {color} games imported yet.
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -169,12 +211,19 @@ function PositionBoard({
 function OpeningsPage() {
   const conn = useConnection();
   const games = useGames();
-  const [color, setColor] = useState<Color>("white");
   const [picked, setPicked] = useState<SelectedLine | null>(null);
-  const tree = useMemo(() => serializeTree(buildOpeningTree(games, color)), [color, games]);
-  const selectedNodes = [tree, ...(picked?.nodes ?? [])];
+  const trees = useMemo(
+    () => ({
+      white: serializeTree(buildOpeningTree(games, "white")),
+      black: serializeTree(buildOpeningTree(games, "black")),
+    }),
+    [games],
+  );
+  const selectedColor: Color = picked?.color ?? (trees.white.count > 0 ? "white" : "black");
+  const selectedRoot = trees[selectedColor];
+  const selectedNodes = [selectedRoot, ...(picked?.nodes ?? [])];
   const selectedIndex = picked ? picked.index + 1 : 0;
-  const selected = selectedNodes[selectedIndex] ?? tree;
+  const selected = selectedNodes[selectedIndex] ?? selectedRoot;
 
   function moveSelection(delta: number) {
     if (!picked) return;
@@ -203,23 +252,15 @@ function OpeningsPage() {
       <PageHeader
         eyebrow="Personal opening tree"
         title="Your repertoire, by the numbers"
-        description={`Built from your imported ${conn.platform} games. Switch color to inspect the lines you actually play.`}
+        description={`Built from your imported ${conn.platform} games. White and black trees are generated separately from the games you played on each side.`}
         actions={
-          <div className="flex rounded-md border border-border bg-muted/30 p-1">
-            {(["white", "black"] as Color[]).map((c) => (
-              <Button
-                key={c}
-                size="sm"
-                variant={color === c ? "default" : "ghost"}
-                onClick={() => {
-                  setColor(c);
-                  setPicked(null);
-                }}
-                className={color === c ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
-              >
-                As {c}
-              </Button>
-            ))}
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline" className="font-mono text-[10px]">
+              White {trees.white.count}
+            </Badge>
+            <Badge variant="outline" className="font-mono text-[10px]">
+              Black {trees.black.count}
+            </Badge>
           </div>
         }
       />
@@ -227,26 +268,19 @@ function OpeningsPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <Card className="border-border/60 bg-card/40 p-3 lg:col-span-3">
           <div className="mb-1 flex items-center justify-between px-2 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            <span>Move</span>
+            <span>Opening trees</span>
             <span>W / D / L - Games</span>
           </div>
-          <div className="max-h-[600px] overflow-auto pr-1">
-            {tree.children.length > 0 ? (
-              tree.children.map((c) => (
-                <NodeRow key={`${c.san}-${c.fen}`} node={c} onPick={setPicked} />
-              ))
-            ) : (
-              <div className="px-3 py-10 text-center text-sm text-muted-foreground">
-                No {color} games imported yet.
-              </div>
-            )}
+          <div className="space-y-3">
+            <TreeSection color="white" tree={trees.white} onPick={setPicked} />
+            <TreeSection color="black" tree={trees.black} onPick={setPicked} />
           </div>
         </Card>
 
         <div className="space-y-4 lg:col-span-2">
           <PositionBoard
             node={selected}
-            color={color}
+            color={selectedColor}
             canGoBack={Boolean(picked && picked.index > -1)}
             canGoForward={Boolean(picked && picked.index < picked.nodes.length - 1)}
             onBack={() => moveSelection(-1)}
@@ -256,7 +290,12 @@ function OpeningsPage() {
             <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               Selected line
             </div>
-            <h3 className="font-display mt-1 text-2xl font-semibold">{selected.san || "Start"}</h3>
+            <div className="mt-1 flex items-center gap-2">
+              <h3 className="font-display text-2xl font-semibold">{selected.san || "Start"}</h3>
+              <Badge variant="outline" className="font-mono text-[10px] capitalize">
+                {selectedColor}
+              </Badge>
+            </div>
             <div className="mt-4 grid grid-cols-3 gap-2">
               <div className="rounded-md border border-win/20 bg-win/10 p-2 text-center">
                 <div className="font-display text-xl font-bold text-win">{selected.wins}</div>
