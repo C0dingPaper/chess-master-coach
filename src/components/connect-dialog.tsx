@@ -25,23 +25,30 @@ interface Props {
   initialPlatform?: Platform;
 }
 
+function normalizeUsernameInput(value: string) {
+  return value.replace(/\s+/g, "").replace(/[^a-zA-Z0-9_-]/g, "");
+}
+
 export function ConnectDialog({
   open,
   onOpenChange,
   initialUsername = "",
   initialPlatform = "chess.com",
 }: Props) {
-  const [username, setUsername] = useState(initialUsername);
+  const [username, setUsername] = useState(() => normalizeUsernameInput(initialUsername));
   const [platform, setPlatform] = useState<Platform>(initialPlatform);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function handleConnect() {
-    const u = username.trim();
+    const u = normalizeUsernameInput(username);
     if (!u) {
-      toast.error("Enter your username");
+      toast.error("Enter a valid username", {
+        description: "Use letters, numbers, hyphens, or underscores.",
+      });
       return;
     }
+    if (u !== username) setUsername(u);
     setBusy(true);
     setProgress({ fetched: 0, parsed: 0, total: null, status: "Starting…" });
     try {
@@ -125,14 +132,20 @@ export function ConnectDialog({
             <Input
               id="username"
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => setUsername(normalizeUsernameInput(e.target.value))}
               placeholder={platform === "chess.com" ? "MagnusCarlsen" : "DrNykterstein"}
               className="mt-2 font-mono"
               disabled={busy}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleConnect();
               }}
             />
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              Spaces are ignored. Allowed: letters, numbers, hyphen, underscore.
+            </p>
           </div>
 
           {progress && (
