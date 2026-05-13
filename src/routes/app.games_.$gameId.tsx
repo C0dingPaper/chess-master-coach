@@ -5,6 +5,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { EmptyConnect } from "@/components/empty-connect";
 import { useGames, useIsClient } from "@/lib/chess/hooks";
 import {
@@ -22,6 +30,7 @@ import {
   CircleStop,
   Loader2,
   Sparkles,
+  Trash2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -33,10 +42,16 @@ export const Route = createFileRoute("/app/games_/$gameId")({
   component: GameReviewPage,
 });
 
-type AnnotationKind = "pending" | "brilliancy" | "good" | "inaccuracy" | "mistake" | "blunder";
+type AnnotationKind =
+  | "pending"
+  | "test"
+  | "brilliancy"
+  | "good"
+  | "inaccuracy"
+  | "mistake"
+  | "blunder";
 
-type ReviewMove = {
-  ply: number;
+type BoardMove = {
   moveNumber: number;
   color: Color;
   san: string;
@@ -45,6 +60,14 @@ type ReviewMove = {
   to: string;
   before: string;
   after: string;
+};
+
+type ReviewMove = BoardMove & {
+  ply: number;
+};
+
+type VariationMove = BoardMove & {
+  id: string;
 };
 
 type MoveAnalysis = {
@@ -89,6 +112,7 @@ function annotationLabel(kind: AnnotationKind) {
   if (kind === "inaccuracy") return "Inaccuracy";
   if (kind === "mistake") return "Mistake";
   if (kind === "blunder") return "Blunder";
+  if (kind === "test") return "Test move";
   return "Pending";
 }
 
@@ -103,6 +127,7 @@ function annotationClass(kind: AnnotationKind, active = false) {
   if (kind === "mistake")
     return `${focus} border-orange-300/45 bg-orange-500/15 text-orange-100 ring-orange-300/70`;
   if (kind === "blunder") return `${focus} border-loss/50 bg-loss/20 text-loss ring-loss/70`;
+  if (kind === "test") return `${focus} border-accent/45 bg-accent/15 text-accent ring-accent/70`;
   return `${focus} border-border/50 bg-muted/30 text-muted-foreground ring-border/70`;
 }
 
@@ -112,6 +137,7 @@ function annotationColor(kind: AnnotationKind) {
   if (kind === "inaccuracy") return "oklch(0.86 0.13 92 / 0.75)";
   if (kind === "mistake") return "oklch(0.75 0.16 55 / 0.78)";
   if (kind === "blunder") return "oklch(0.65 0.21 25 / 0.85)";
+  if (kind === "test") return "oklch(0.78 0.16 75 / 0.85)";
   return "oklch(0.78 0.16 75 / 0.7)";
 }
 
@@ -140,6 +166,10 @@ function buildReviewMoves(game: StoredGame): ReviewMove[] {
 }
 
 function moveLabel(move: ReviewMove) {
+  return `${move.moveNumber}${move.color === "black" ? "..." : "."} ${move.san}`;
+}
+
+function boardMoveLabel(move: BoardMove) {
   return `${move.moveNumber}${move.color === "black" ? "..." : "."} ${move.san}`;
 }
 
@@ -214,18 +244,142 @@ function summarizeAnalysis(analysis: Record<number, MoveAnalysis>) {
   };
 }
 
-function selectedSquareStyles(move: ReviewMove | null, annotation: AnnotationKind) {
-  if (!move) return {};
+function selectedSquareStyles(
+  move: BoardMove | null,
+  annotation: AnnotationKind,
+  selectedSquare: string | null,
+) {
+  const styles: Record<string, React.CSSProperties> = {};
+  if (!move && !selectedSquare) return styles;
   const color = annotationColor(annotation);
-  return {
-    [move.from]: {
+  if (move) {
+    styles[move.from] = {
       background: `radial-gradient(circle, ${color} 0%, ${color} 34%, transparent 36%)`,
-    },
-    [move.to]: {
+    };
+    styles[move.to] = {
       background: `linear-gradient(135deg, ${color}, transparent 70%)`,
       boxShadow: `inset 0 0 0 3px ${color}`,
-    },
-  };
+    };
+  }
+  if (selectedSquare) {
+    styles[selectedSquare] = {
+      ...(styles[selectedSquare] ?? {}),
+      boxShadow: "inset 0 0 0 3px oklch(0.78 0.16 75)",
+    };
+  }
+  return styles;
+}
+
+function legalBoardMove(fen: string, from: string, to: string): VariationMove | null {
+  try {
+    const chess = new Chess(fen);
+    const color: Color = chess.turn() === "w" ? "white" : "black";
+    const moveNumber = Number(fen.split(" ")[5] ?? "1") || 1;
+    const move = chess.move({ from, to, promotion: "q" });
+    if (!move) return null;
+    return {
+      id: `${move.before}-${uciFromMove(move)}`,
+      moveNumber,
+      color,
+      san: move.san,
+      uci: uciFromMove(move),
+      from: move.from,
+      to: move.to,
+      before: move.before,
+      after: move.after,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function VariationMovePill({
+  move,
+  index,
+  active,
+  onFocus,
+  onDeleteFrom,
+  onDeleteAll,
+}: {
+  move: VariationMove;
+  index: number;
+  active: boolean;
+  onFocus: () => void;
+  onDeleteFrom: () => void;
+  onDeleteAll: () => void;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <button
+          type="button"
+          onClick={onFocus}
+          className={`rounded-md border px-2.5 py-1.5 text-left font-mono text-xs transition hover:brightness-110 ${annotationClass(
+            "test",
+            active,
+          )}`}
+        >
+          <span className="mr-1 text-[10px] opacity-70">
+            {move.moveNumber}
+            {move.color === "black" ? "..." : "."}
+          </span>
+          {move.san}
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        <ContextMenuLabel className="font-mono text-xs">Sub move {index + 1}</ContextMenuLabel>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={onDeleteFrom}>
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete from here
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onDeleteAll}>
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete all test moves
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function VariationLine({
+  moves,
+  onFocus,
+  onDeleteFrom,
+  onDeleteAll,
+}: {
+  moves: VariationMove[];
+  onFocus: (index: number) => void;
+  onDeleteFrom: (index: number) => void;
+  onDeleteAll: () => void;
+}) {
+  if (moves.length === 0) return null;
+
+  return (
+    <div className="mt-4 rounded-md border border-accent/30 bg-accent/[0.04] p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="font-mono text-[10px] uppercase tracking-widest text-accent">Sub moves</div>
+        <div className="text-[11px] text-muted-foreground">Right-click a move to delete</div>
+      </div>
+      <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
+        {moves.map((move, index) => (
+          <VariationMovePill
+            key={`${move.id}-${index}`}
+            move={move}
+            index={index}
+            active={index === moves.length - 1}
+            onFocus={() => onFocus(index)}
+            onDeleteFrom={() => onDeleteFrom(index)}
+            onDeleteAll={onDeleteAll}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function nextMainlineMove(moves: ReviewMove[], selectedPly: number) {
+  return moves[selectedPly + 1] ?? null;
 }
 
 function MoveCell({
@@ -281,6 +435,8 @@ function GameReviewPage() {
   const notationRef = useRef<HTMLDivElement>(null);
   const [selectedPly, setSelectedPly] = useState(0);
   const [boardZoom, setBoardZoom] = useState(86);
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
+  const [variationMoves, setVariationMoves] = useState<VariationMove[]>([]);
   const [analysis, setAnalysis] = useState<Record<number, MoveAnalysis>>({});
   const [analyzeState, setAnalyzeState] = useState<AnalyzeState>({
     status: "idle",
@@ -290,8 +446,12 @@ function GameReviewPage() {
 
   const selectedMove = selectedPly >= 0 ? (moves[selectedPly] ?? null) : null;
   const selectedAnalysis = selectedMove ? analysis[selectedMove.ply] : undefined;
-  const selectedAnnotation = selectedAnalysis?.annotation ?? "pending";
-  const fen = selectedMove?.after ?? DEFAULT_POSITION;
+  const latestVariationMove = variationMoves[variationMoves.length - 1] ?? null;
+  const displayedMove = latestVariationMove ?? selectedMove;
+  const selectedAnnotation: AnnotationKind = latestVariationMove
+    ? "test"
+    : (selectedAnalysis?.annotation ?? "pending");
+  const fen = latestVariationMove?.after ?? selectedMove?.after ?? DEFAULT_POSITION;
   const progressPct = moves.length ? Math.round((analyzeState.progress / moves.length) * 100) : 0;
   const summary = summarizeAnalysis(analysis);
   const movePairs = [];
@@ -305,8 +465,64 @@ function GameReviewPage() {
     active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedPly]);
 
+  function resetVariation() {
+    setVariationMoves([]);
+    setSelectedSquare(null);
+  }
+
+  function pickMainline(ply: number) {
+    resetVariation();
+    setSelectedPly(ply);
+  }
+
   function shift(delta: number) {
+    setSelectedSquare(null);
+    if (variationMoves.length > 0 && delta < 0) {
+      setVariationMoves((current) => current.slice(0, -1));
+      return;
+    }
+    if (variationMoves.length > 0) return;
     setSelectedPly((current) => Math.max(-1, Math.min(moves.length - 1, current + delta)));
+  }
+
+  function focusVariation(index: number) {
+    setSelectedSquare(null);
+    setVariationMoves((current) => current.slice(0, index + 1));
+  }
+
+  function deleteVariationFrom(index: number) {
+    setSelectedSquare(null);
+    setVariationMoves((current) => current.slice(0, index));
+  }
+
+  function playBoardMove(from: string, to: string) {
+    const move = legalBoardMove(fen, from, to);
+    setSelectedSquare(null);
+    if (!move) return false;
+
+    const nextMove = variationMoves.length === 0 ? nextMainlineMove(moves, selectedPly) : null;
+    if (nextMove && nextMove.uci === move.uci) {
+      setSelectedPly(nextMove.ply);
+      setVariationMoves([]);
+      return true;
+    }
+
+    setVariationMoves((current) => [...current, move]);
+    return true;
+  }
+
+  function handleSquareClick(square: string, hasPiece: boolean) {
+    if (selectedSquare) {
+      if (selectedSquare === square) {
+        setSelectedSquare(null);
+        return;
+      }
+      const moved = playBoardMove(selectedSquare, square);
+      if (!moved && hasPiece) setSelectedSquare(square);
+      return;
+    }
+
+    if (hasPiece) setSelectedSquare(square);
   }
 
   async function analyzeGame() {
@@ -447,22 +663,30 @@ function GameReviewPage() {
                       id: `game-review-${game.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
                       position: fen,
                       boardOrientation: game.myColor,
-                      allowDragging: false,
+                      allowDragging: true,
                       allowDrawingArrows: false,
                       showNotation: true,
                       animationDurationInMs: 160,
                       darkSquareStyle: { backgroundColor: "oklch(0.45 0.05 70)" },
                       lightSquareStyle: { backgroundColor: "oklch(0.88 0.04 85)" },
-                      squareStyles: selectedSquareStyles(selectedMove, selectedAnnotation),
-                      arrows: selectedMove
+                      squareStyles: selectedSquareStyles(
+                        displayedMove,
+                        selectedAnnotation,
+                        selectedSquare,
+                      ),
+                      arrows: displayedMove
                         ? [
                             {
-                              startSquare: selectedMove.from,
-                              endSquare: selectedMove.to,
+                              startSquare: displayedMove.from,
+                              endSquare: displayedMove.to,
                               color: annotationColor(selectedAnnotation),
                             },
                           ]
                         : [],
+                      onPieceDrop: ({ sourceSquare, targetSquare }) =>
+                        targetSquare ? playBoardMove(sourceSquare, targetSquare) : false,
+                      onSquareClick: ({ piece, square }) =>
+                        handleSquareClick(square, Boolean(piece)),
                       boardStyle: { width: "100%", height: "100%" },
                     }}
                   />
@@ -478,19 +702,21 @@ function GameReviewPage() {
                 size="icon"
                 className="h-9 w-9"
                 onClick={() => shift(-1)}
-                disabled={selectedPly < 0}
+                disabled={variationMoves.length === 0 && selectedPly < 0}
                 aria-label="Previous move"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <div className="min-w-0 flex-1 rounded-md border border-border/50 bg-background/60 px-3 py-2">
                 <div className="truncate font-mono text-xs">
-                  {selectedMove ? moveLabel(selectedMove) : "Starting position"}
+                  {displayedMove ? boardMoveLabel(displayedMove) : "Starting position"}
                 </div>
                 <div className="mt-1 truncate text-[11px] text-muted-foreground">
-                  {selectedAnalysis?.bestSan
-                    ? `Best: ${selectedAnalysis.bestSan} - ${formatEval(selectedAnalysis.evalBest)}`
-                    : `${annotationLabel(selectedAnnotation)} position`}
+                  {latestVariationMove
+                    ? `Sub line from ${selectedMove ? moveLabel(selectedMove) : "start"}`
+                    : selectedAnalysis?.bestSan
+                      ? `Best: ${selectedAnalysis.bestSan} - ${formatEval(selectedAnalysis.evalBest)}`
+                      : `${annotationLabel(selectedAnnotation)} position`}
                 </div>
               </div>
               <Button
@@ -498,12 +724,19 @@ function GameReviewPage() {
                 size="icon"
                 className="h-9 w-9"
                 onClick={() => shift(1)}
-                disabled={selectedPly >= moves.length - 1}
+                disabled={variationMoves.length > 0 || selectedPly >= moves.length - 1}
                 aria-label="Next move"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
+
+            <VariationLine
+              moves={variationMoves}
+              onFocus={focusVariation}
+              onDeleteFrom={deleteVariationFrom}
+              onDeleteAll={resetVariation}
+            />
           </Card>
 
           <Card className="border-border/60 bg-card/40 p-5">
@@ -588,14 +821,14 @@ function GameReviewPage() {
                     move={pair.white}
                     analysis={pair.white ? analysis[pair.white.ply] : undefined}
                     active={selectedPly === pair.white?.ply}
-                    onClick={() => pair.white && setSelectedPly(pair.white.ply)}
+                    onClick={() => pair.white && pickMainline(pair.white.ply)}
                     data-ply={pair.white?.ply}
                   />
                   <MoveCell
                     move={pair.black}
                     analysis={pair.black ? analysis[pair.black.ply] : undefined}
                     active={selectedPly === pair.black?.ply}
-                    onClick={() => pair.black && setSelectedPly(pair.black.ply)}
+                    onClick={() => pair.black && pickMainline(pair.black.ply)}
                     data-ply={pair.black?.ply}
                   />
                 </div>
@@ -614,19 +847,23 @@ function GameReviewPage() {
                     </span>
                   </div>
                   <div className="mt-1 truncate font-mono text-xs">
-                    {selectedMove ? moveLabel(selectedMove) : "Start"}
+                    {displayedMove ? boardMoveLabel(displayedMove) : "Start"}
                   </div>
                 </div>
                 <div className="shrink-0 text-right font-mono text-xs">
-                  <div>{selectedAnalysis ? formatEval(selectedAnalysis.evalAfter) : "N/A"}</div>
+                  <div>
+                    {!latestVariationMove && selectedAnalysis
+                      ? formatEval(selectedAnalysis.evalAfter)
+                      : "N/A"}
+                  </div>
                   <div className="mt-1 opacity-70">
-                    {selectedAnalysis?.loss == null
+                    {latestVariationMove || selectedAnalysis?.loss == null
                       ? "0 cp"
                       : `${Math.round(selectedAnalysis.loss)} cp`}
                   </div>
                 </div>
               </div>
-              {selectedAnalysis?.bestSan && (
+              {!latestVariationMove && selectedAnalysis?.bestSan && (
                 <div className="mt-3 rounded border border-background/30 bg-background/20 px-3 py-2 font-mono text-xs">
                   Best move: {selectedAnalysis.bestSan}
                 </div>
