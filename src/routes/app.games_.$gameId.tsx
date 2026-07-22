@@ -33,7 +33,10 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleStop,
+  GraduationCap,
   Loader2,
+  MessageSquareText,
+  RotateCcw,
   Sparkles,
   Trash2,
   ZoomIn,
@@ -100,35 +103,80 @@ type AnalyzeState = {
   message: string;
 };
 
-const STOCKFISH_DEPTH_OPTIONS = [
-  { value: 8, label: "Depth 8", note: "Quick" },
-  { value: 10, label: "Depth 10", note: "Balanced" },
-  { value: 12, label: "Depth 12", note: "Accurate" },
-  { value: 14, label: "Depth 14", note: "Deep" },
+type CoachReviewState = AnalyzeState;
+
+type CoachInsight = {
+  title: string;
+  explanation: string;
+  advice: string;
+  bestSan: string | null;
+  loss: number | null;
+  annotation: AnnotationKind;
+  depth: number;
+};
+
+type LiveEvaluationState = {
+  fen: string | null;
+  evaluation: PositionEvaluation | null;
+  status: "idle" | "running" | "ready" | "error";
+};
+
+const REVIEW_STRENGTH_OPTIONS = [
+  { value: 8, label: "Fast", note: "Quick review" },
+  { value: 10, label: "Balanced", note: "Recommended" },
+  { value: 12, label: "Strong", note: "Slower" },
+  { value: 14, label: "Deep", note: "Best browser quality" },
 ] as const;
 
-const FAST_SCAN_MOVETIME_MS = 220;
-const FAST_SCAN_TIMEOUT_MS = 900;
-const FAST_SCAN_HARD_TIMEOUT_MS = 1800;
+const EVAL_BAR_DEBOUNCE_MS = 120;
+const EVAL_BAR_MOVETIME_MS = 180;
+const EVAL_BAR_TIMEOUT_MS = 1400;
+const EVAL_BAR_HARD_TIMEOUT_MS = 2400;
+const FAST_SCAN_MOVETIME_MS = 160;
+const FAST_SCAN_TIMEOUT_MS = 800;
+const FAST_SCAN_HARD_TIMEOUT_MS = 1400;
 const ANALYSIS_UI_UPDATE_INTERVAL = 5;
-const DEEPEN_UI_UPDATE_INTERVAL = 2;
-const OPENING_PLIES_TO_SKIP_FOR_DEEPENING = 6;
-const MIN_DEEPENED_MOVES = 10;
-const MAX_DEEPENED_MOVES = 24;
+const DEEPEN_UI_UPDATE_INTERVAL = 1;
+const OPENING_PLIES_TO_SKIP_FOR_DEEPENING = 8;
+const MAX_DEEPENED_MOVES = 8;
+const ANALYSIS_RERUN_RESET_DELAY_MS = 180;
+const BEST_MOVE_ARROW_COLOR = "oklch(0.78 0.16 165 / 0.9)";
+const COACH_REVIEW_TARGET_MS = 40000;
+const COACH_REVIEW_MIN_MOVETIME_MS = 550;
+const COACH_REVIEW_MAX_MOVETIME_MS = 1600;
+const COACH_REVIEW_TIMEOUT_BUFFER_MS = 1600;
+const COACH_REVIEW_HARD_TIMEOUT_BUFFER_MS = 3200;
 
-const STOCKFISH_TIMEOUT_BY_DEPTH: Record<number, number> = {
-  8: 1200,
-  10: 2500,
+const DEEPEN_MOVETIME_BY_DEPTH: Record<number, number> = {
+  8: 400,
+  10: 900,
+  12: 1600,
+  14: 2500,
+};
+
+const DEEPEN_TIMEOUT_BY_DEPTH: Record<number, number> = {
+  8: 1500,
+  10: 3000,
   12: 5000,
-  14: 9000,
+  14: 7500,
 };
 
-const STOCKFISH_HARD_TIMEOUT_BY_DEPTH: Record<number, number> = {
+const DEEPEN_HARD_TIMEOUT_BY_DEPTH: Record<number, number> = {
   8: 2500,
-  10: 4200,
-  12: 7500,
-  14: 12000,
+  10: 4500,
+  12: 7000,
+  14: 10000,
 };
+
+function waitForAnalysisResetPaint() {
+  if (typeof window === "undefined") return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.setTimeout(resolve, ANALYSIS_RERUN_RESET_DELAY_MS);
+    });
+  });
+}
 
 function formatDate(ts: number) {
   return new Date(ts * 1000).toLocaleDateString(undefined, {
@@ -247,11 +295,40 @@ function emptyPositionEvaluation(fen: string, error: string): PositionEvaluation
   return toPositionEvaluation(fen, { bestMove: null, cp: null, mate: null, depth: 0 }, error);
 }
 
+function isBoardSquare(square: string) {
+  return /^[a-h][1-8]$/.test(square);
+}
+
+function bestMoveArrow(fen: string, bestMove: string | null) {
+  const uci = bestMove?.toLowerCase();
+  if (!uci || uci === "0000" || uci.length < 4) return null;
+
+  const from = uci.slice(0, 2);
+  const to = uci.slice(2, 4);
+  const promotion = uci[4];
+
+  if (!isBoardSquare(from) || !isBoardSquare(to)) return null;
+
+  try {
+    const chess = new Chess(fen);
+    const move = promotion ? { from, to, promotion } : { from, to };
+    if (!chess.move(move)) return null;
+  } catch {
+    return null;
+  }
+
+  return {
+    startSquare: from,
+    endSquare: to,
+    color: BEST_MOVE_ARROW_COLOR,
+  };
+}
+
 function evalBarWhitePercent(cp: number | null) {
   if (cp == null) return 50;
   if (Math.abs(cp) > 90000) return cp > 0 ? 98 : 2;
-  const bounded = Math.max(-700, Math.min(700, cp));
-  return Math.round(50 + bounded / 14);
+  const winningChances = 2 / (1 + Math.exp(-0.00368208 * cp)) - 1;
+  return Math.round(50 + winningChances * 48);
 }
 
 function formatEvalBarLabel(cp: number | null) {
@@ -379,6 +456,132 @@ function isSuspiciousMove(move: ReviewMove, moveAnalysis: MoveAnalysis) {
   if (!bestMove || move.uci === bestMove) return false;
 
   return (moveAnalysis.loss ?? 0) >= 45;
+}
+
+function isPlayerMove(move: ReviewMove | null | undefined, myColor: Color | undefined) {
+  return Boolean(move && myColor && move.color === myColor);
+}
+
+function playerCentipawns(whiteCp: number | null, color: Color) {
+  if (whiteCp == null) return null;
+  return color === "white" ? whiteCp : -whiteCp;
+}
+
+function coachReviewMoveTime(moveCount: number) {
+  const evaluations = Math.max(1, moveCount * 2);
+  return Math.max(
+    COACH_REVIEW_MIN_MOVETIME_MS,
+    Math.min(COACH_REVIEW_MAX_MOVETIME_MS, Math.floor(COACH_REVIEW_TARGET_MS / evaluations)),
+  );
+}
+
+function formatLoss(loss: number | null) {
+  if (loss == null) return "an unclear amount";
+  if (loss >= 90000) return "a mating advantage";
+  return `${(loss / 100).toFixed(loss >= 100 ? 1 : 2)} pawns`;
+}
+
+function bestMoveTheme(bestSan: string | null) {
+  if (!bestSan) return "The important part is that there was a more resilient move available.";
+  if (bestSan.includes("#")) {
+    return "The engine line is forcing because it creates or prevents mate.";
+  }
+  if (bestSan.includes("+")) {
+    return "The engine move starts with check, so the opponent has less freedom to choose a plan.";
+  }
+  if (bestSan.includes("x")) {
+    return "The engine move uses a forcing capture, usually winning material or removing a defender.";
+  }
+  if (bestSan.startsWith("O-O")) {
+    return "The engine preferred king safety before starting other operations.";
+  }
+  if (bestSan.includes("=")) {
+    return "The engine line is about promotion timing, where one tempo changes the result.";
+  }
+  return "The engine move keeps more pressure and gives the opponent fewer useful replies.";
+}
+
+function coachAdvice(kind: AnnotationKind) {
+  if (kind === "blunder") {
+    return "Before moves like this, pause for checks, captures, and direct threats against your king or queen. A one-move tactical scan would likely catch the problem.";
+  }
+  if (kind === "mistake") {
+    return "Look for the opponent's strongest reply before finalizing the move. The issue is usually a tactic, loose piece, or missed forcing move.";
+  }
+  if (kind === "inaccuracy") {
+    return "The move is playable, but it gives away pressure. Compare it with the engine move and ask what threat or improvement the engine preserved.";
+  }
+  if (kind === "brilliancy") {
+    return "This is a strong practical decision. Keep looking for forcing ideas when your pieces are active.";
+  }
+  return "No major coaching issue here. The position remains close to the engine recommendation.";
+}
+
+function shouldCoachMove(move: ReviewMove, moveAnalysis: MoveAnalysis) {
+  if (moveAnalysis.engineError) return false;
+  if (moveAnalysis.annotation === "brilliancy") return true;
+  if (
+    moveAnalysis.annotation === "inaccuracy" ||
+    moveAnalysis.annotation === "mistake" ||
+    moveAnalysis.annotation === "blunder"
+  ) {
+    return true;
+  }
+
+  const bestMove = moveAnalysis.bestMove?.toLowerCase();
+  return Boolean(bestMove && move.uci !== bestMove && (moveAnalysis.loss ?? 0) >= 45);
+}
+
+function buildCoachInsight(move: ReviewMove, moveAnalysis: MoveAnalysis): CoachInsight | null {
+  if (!shouldCoachMove(move, moveAnalysis)) return null;
+
+  const bestSan = moveAnalysis.bestSan;
+  const playedBestMove = Boolean(
+    moveAnalysis.bestMove && move.uci === moveAnalysis.bestMove.toLowerCase(),
+  );
+  const beforeForPlayer = playerCentipawns(moveAnalysis.evalBeforeWhite, move.color);
+  const afterForPlayer = playerCentipawns(moveAnalysis.evalAfterWhite, move.color);
+  const label = annotationLabel(moveAnalysis.annotation);
+  const bestMoveText = bestSan ? `${bestSan}` : "the engine move";
+
+  if (moveAnalysis.annotation === "brilliancy" || playedBestMove) {
+    return {
+      title: `${moveLabel(move)}: Brilliancy`,
+      explanation: bestSan
+        ? `${move.san} is a strong move and matches the engine's idea. It keeps the position around ${formatEval(
+            afterForPlayer,
+          )} for you while finding ${bestMoveTheme(bestSan).toLowerCase()}`
+        : `${move.san} is a strong practical decision. The position stays around ${formatEval(
+            afterForPlayer,
+          )} for you.`,
+      advice: coachAdvice(moveAnalysis.annotation),
+      bestSan,
+      loss: moveAnalysis.loss,
+      annotation: moveAnalysis.annotation,
+      depth: moveAnalysis.depth,
+    };
+  }
+
+  const titleLabel =
+    moveAnalysis.annotation === "good" || moveAnalysis.annotation === "pending"
+      ? "Tactical miss"
+      : label;
+
+  return {
+    title: `${moveLabel(move)}: ${titleLabel}`,
+    explanation: `${move.san} is a ${titleLabel.toLowerCase()} because it gives up about ${formatLoss(
+      moveAnalysis.loss,
+    )} compared with ${bestMoveText}. Before the move the position was ${formatEval(
+      beforeForPlayer,
+    )} for you; after it, the position is ${formatEval(afterForPlayer)}. ${bestMoveTheme(
+      bestSan,
+    )}`,
+    advice: coachAdvice(moveAnalysis.annotation),
+    bestSan,
+    loss: moveAnalysis.loss,
+    annotation: moveAnalysis.annotation,
+    depth: moveAnalysis.depth,
+  };
 }
 
 function summarizeAnalysis(analysis: Record<number, MoveAnalysis>) {
@@ -575,8 +778,11 @@ function MoveCell({
       data-ply={dataPly}
       className={`min-w-0 rounded-md border px-2 py-1.5 text-left transition hover:brightness-110 ${annotationClass(
         annotation,
-        active,
-      )}`}
+      )} ${
+        active
+          ? "relative z-10 border-white/95 ring-2 ring-white/95 ring-offset-2 ring-offset-background shadow-[0_0_0_1px_rgba(255,255,255,0.8)]"
+          : ""
+      }`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-mono text-xs font-semibold">{move.san}</span>
@@ -598,22 +804,30 @@ function EvaluationBar({
   whiteCp,
   depth,
   analyzing,
+  orientation,
 }: {
   whiteCp: number | null;
   depth: number | null;
   analyzing: boolean;
+  orientation: Color;
 }) {
   const whitePct = evalBarWhitePercent(whiteCp);
+  const whiteIsBottom = orientation === "white";
+  const topColor = whiteIsBottom ? "Black" : "White";
+  const bottomColor = whiteIsBottom ? "White" : "Black";
+  const whiteBarPosition = whiteIsBottom
+    ? { bottom: 0, height: `${whitePct}%` }
+    : { top: 0, height: `${whitePct}%` };
 
   return (
     <div className="flex w-12 shrink-0 flex-col items-center gap-2">
       <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        Black
+        {topColor}
       </div>
       <div className="relative min-h-72 flex-1 overflow-hidden rounded-md border border-border/70 bg-zinc-950 shadow-inner">
         <div
-          className="absolute inset-x-0 bottom-0 bg-zinc-100 transition-[height] duration-500 ease-out"
-          style={{ height: `${whitePct}%` }}
+          className="absolute inset-x-0 bg-zinc-100 transition-[height,top,bottom] duration-500 ease-out"
+          style={whiteBarPosition}
         />
         <div className="absolute inset-x-1/2 top-0 h-full w-px -translate-x-1/2 bg-border/30" />
         <div className="absolute left-1/2 top-1/2 w-20 -translate-x-1/2 -translate-y-1/2 rotate-90 rounded border border-border/70 bg-background/90 px-2 py-1 text-center font-mono text-[10px] text-foreground shadow-sm">
@@ -621,7 +835,7 @@ function EvaluationBar({
         </div>
       </div>
       <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        White
+        {bottomColor}
       </div>
       <div className="h-4 font-mono text-[9px] text-muted-foreground">
         {depth ? `d${depth}` : ""}
@@ -643,9 +857,12 @@ function GameReviewPage() {
   const zoomScrollIntentRef = useRef(false);
   const previousEffectiveZoomRef = useRef(86);
   const evaluationCacheRef = useRef(new Map<string, PositionEvaluation>());
+  const liveEvaluationCacheRef = useRef(new Map<string, PositionEvaluation>());
+  const liveEvaluationEngineRef = useRef<StockfishClient | null>(null);
   const [selectedPly, setSelectedPly] = useState(0);
   const [boardZoom, setBoardZoom] = useState(86);
-  const [engineDepth, setEngineDepth] = useState(10);
+  const [boardOrientation, setBoardOrientation] = useState<Color>(game?.myColor ?? "white");
+  const [reviewStrength, setReviewStrength] = useState(10);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [markedSquares, setMarkedSquares] = useState<string[]>([]);
   const [variationMoves, setVariationMoves] = useState<VariationMove[]>([]);
@@ -657,11 +874,38 @@ function GameReviewPage() {
     total: 0,
     message: "Ready",
   });
+  const [coachReviewState, setCoachReviewState] = useState<CoachReviewState>({
+    status: "idle",
+    progress: 0,
+    total: 0,
+    message: "Ready",
+  });
+  const [coachInsights, setCoachInsights] = useState<Record<number, CoachInsight>>({});
+  const [liveEvaluation, setLiveEvaluation] = useState<LiveEvaluationState>({
+    fen: null,
+    evaluation: null,
+    status: "idle",
+  });
+
+  const myMoveAnalysis = useMemo(() => {
+    if (!game) return {};
+
+    return moves.reduce<Record<number, MoveAnalysis>>((visibleAnalysis, move) => {
+      const moveAnalysis = analysis[move.ply];
+      if (isPlayerMove(move, game.myColor) && moveAnalysis) {
+        visibleAnalysis[move.ply] = moveAnalysis;
+      }
+
+      return visibleAnalysis;
+    }, {});
+  }, [analysis, game, moves]);
 
   const selectedMove = selectedPly >= 0 ? (moves[selectedPly] ?? null) : null;
   const selectedAnalysis = selectedMove ? analysis[selectedMove.ply] : undefined;
   const latestVariationMove = variationMoves[variationMoves.length - 1] ?? null;
   const displayedMove = latestVariationMove ?? selectedMove;
+  const selectedIsPlayerMove = isPlayerMove(selectedMove, game?.myColor);
+  const selectedCoachInsight = selectedMove ? coachInsights[selectedMove.ply] : undefined;
   const selectedAnnotation: AnnotationKind = latestVariationMove
     ? "test"
     : (selectedAnalysis?.annotation ?? "pending");
@@ -669,21 +913,45 @@ function GameReviewPage() {
   const progressPct = analyzeState.total
     ? Math.round((analyzeState.progress / analyzeState.total) * 100)
     : 0;
-  const summary = summarizeAnalysis(analysis);
+  const coachProgressPct = coachReviewState.total
+    ? Math.round((coachReviewState.progress / coachReviewState.total) * 100)
+    : 0;
+  const summary = summarizeAnalysis(myMoveAnalysis);
   const sidebarCollapsed = sidebarState === "collapsed";
   const boardMaxZoom = sidebarCollapsed ? 118 : 108;
   const effectiveBoardZoom = Math.min(boardZoom, boardMaxZoom);
   const boardBaseSize = sidebarCollapsed ? 680 : 620;
   const boardPixelSize = Math.round(boardBaseSize * (effectiveBoardZoom / 100));
+  const boardAreaPixelSize = boardPixelSize + 60;
   const displayedPositionIndex = latestVariationMove ? null : selectedPly < 0 ? 0 : selectedPly + 1;
   const displayedPositionEvaluation =
     displayedPositionIndex == null ? null : (positionAnalysis[displayedPositionIndex] ?? null);
-  const displayedEvalWhite = latestVariationMove
+  const playedMoveArrow = displayedMove
+    ? {
+        startSquare: displayedMove.from,
+        endSquare: displayedMove.to,
+        color: annotationColor(selectedAnnotation),
+      }
+    : null;
+  const engineBestMoveArrow = latestVariationMove
+    ? null
+    : bestMoveArrow(fen, displayedPositionEvaluation?.bestMove ?? null);
+  const boardArrows = [playedMoveArrow, engineBestMoveArrow].filter((arrow) => arrow !== null);
+  const storedEvalWhite = latestVariationMove
     ? null
     : (selectedAnalysis?.evalAfterWhite ?? displayedPositionEvaluation?.whiteCp ?? null);
-  const displayedEvalDepth = latestVariationMove
+  const storedEvalDepth = latestVariationMove
     ? null
     : (selectedAnalysis?.depth ?? displayedPositionEvaluation?.depth ?? null);
+  const livePositionEvaluation = liveEvaluation.fen === fen ? liveEvaluation.evaluation : null;
+  const displayedEvalWhite = storedEvalWhite ?? livePositionEvaluation?.whiteCp ?? null;
+  const displayedEvalDepth = storedEvalDepth ?? livePositionEvaluation?.depth ?? null;
+  const isEvaluationBarLoading =
+    displayedEvalWhite == null &&
+    (analyzeState.status === "running" ||
+      coachReviewState.status === "running" ||
+      (liveEvaluation.fen === fen && liveEvaluation.status === "running"));
+  const hasStoredEvaluation = storedEvalWhite != null;
   const movePairs = [];
 
   for (let i = 0; i < moves.length; i += 2) {
@@ -694,6 +962,84 @@ function GameReviewPage() {
     const active = notationRef.current?.querySelector(`[data-ply="${selectedPly}"]`);
     active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedPly]);
+
+  useEffect(() => {
+    if (game) setBoardOrientation(game.myColor);
+  }, [decodedGameId, game?.myColor]);
+
+  useEffect(() => {
+    return () => {
+      liveEvaluationEngineRef.current?.dispose();
+      liveEvaluationEngineRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (analyzeState.status !== "running" && coachReviewState.status !== "running") return;
+
+    liveEvaluationEngineRef.current?.dispose();
+    liveEvaluationEngineRef.current = null;
+  }, [analyzeState.status, coachReviewState.status]);
+
+  useEffect(() => {
+    if (
+      !isClient ||
+      !game ||
+      analyzeState.status === "running" ||
+      coachReviewState.status === "running" ||
+      hasStoredEvaluation
+    ) {
+      return;
+    }
+
+    const cached = liveEvaluationCacheRef.current.get(fen);
+    if (cached) {
+      setLiveEvaluation({ fen, evaluation: cached, status: "ready" });
+      return;
+    }
+
+    let canceled = false;
+    const timer = window.setTimeout(() => {
+      setLiveEvaluation({ fen, evaluation: null, status: "running" });
+
+      async function evaluateCurrentPosition() {
+        try {
+          const engine = liveEvaluationEngineRef.current ?? new StockfishClient();
+          liveEvaluationEngineRef.current = engine;
+
+          const rawEvaluation = await engine.evaluateFen(fen, {
+            movetimeMs: EVAL_BAR_MOVETIME_MS,
+            timeoutMs: EVAL_BAR_TIMEOUT_MS,
+            hardTimeoutMs: EVAL_BAR_HARD_TIMEOUT_MS,
+          });
+          const positionEvaluation = toPositionEvaluation(fen, rawEvaluation);
+          liveEvaluationCacheRef.current.set(fen, positionEvaluation);
+
+          if (!canceled) {
+            setLiveEvaluation({ fen, evaluation: positionEvaluation, status: "ready" });
+          }
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Stockfish could not evaluate this position";
+          const positionEvaluation = emptyPositionEvaluation(fen, message);
+
+          if (!canceled) {
+            setLiveEvaluation({ fen, evaluation: positionEvaluation, status: "error" });
+          }
+
+          liveEvaluationEngineRef.current?.dispose();
+          liveEvaluationEngineRef.current = null;
+        }
+      }
+
+      void evaluateCurrentPosition();
+    }, EVAL_BAR_DEBOUNCE_MS);
+
+    return () => {
+      canceled = true;
+      window.clearTimeout(timer);
+    };
+  }, [analyzeState.status, coachReviewState.status, fen, game, hasStoredEvaluation, isClient]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -759,6 +1105,11 @@ function GameReviewPage() {
   function handleBoardZoomChange(value: number[]) {
     zoomScrollIntentRef.current = true;
     setBoardZoom(value[0] ?? 86);
+  }
+
+  function flipBoard() {
+    setSelectedSquare(null);
+    setBoardOrientation((current) => (current === "white" ? "black" : "white"));
   }
 
   function resetVariation() {
@@ -828,8 +1179,11 @@ function GameReviewPage() {
   }
 
   async function analyzeGame() {
-    if (!moves.length || analyzeState.status === "running") return;
+    if (!moves.length || analyzeState.status === "running" || coachReviewState.status === "running")
+      return;
 
+    const hadVisibleAnalysis =
+      Object.keys(analysis).length > 0 || Object.keys(positionAnalysis).length > 0;
     const fens = [moves[0].before, ...moves.map((move) => move.after)];
     const evaluations: PositionEvaluation[] = [];
     const fastClassifiedMoves = new Set<number>();
@@ -931,11 +1285,16 @@ function GameReviewPage() {
         return positionEvaluation;
       } catch (error) {
         skippedPositions += 1;
-
         const message =
           error instanceof Error ? error.message : `Stockfish skipped ${label} at depth ${depth}`;
-
-        await restartEngine();
+        console.warn("[review] skipped position", {
+          label,
+          depth,
+          movetimeMs,
+          timeoutMs,
+          hardTimeoutMs,
+          message,
+        });
         return emptyPositionEvaluation(fenToEvaluate, message);
       }
     }
@@ -1000,55 +1359,34 @@ function GameReviewPage() {
       publishFastMoveAnalysis(positionIndex);
     }
 
-    function fallbackDeepTargets() {
-      const start = Math.min(OPENING_PLIES_TO_SKIP_FOR_DEEPENING, Math.max(0, moves.length - 1));
-      const available = Math.max(0, moves.length - start);
-      if (available === 0) return [];
-
-      const stride = Math.max(1, Math.floor(available / MIN_DEEPENED_MOVES));
-      const targets: number[] = [];
-
-      for (let moveIndex = start; moveIndex < moves.length; moveIndex += stride) {
-        targets.push(moveIndex);
-        if (targets.length >= MIN_DEEPENED_MOVES) break;
-      }
-
-      return targets;
-    }
-
     function buildDeepTargets() {
-      const selected = new Set<number>(suspiciousMoveIndexes);
-      const scoredTargets = Array.from(deepTargetScores.entries()).sort((a, b) => b[1] - a[1]);
-      const availableTargets = moves.filter(
-        (_, index) => index >= OPENING_PLIES_TO_SKIP_FOR_DEEPENING,
-      ).length;
-      const minimumTargets = Math.min(MIN_DEEPENED_MOVES, availableTargets);
+      const selected = new Set<number>();
+
+      const scoredTargets = Array.from(deepTargetScores.entries())
+        .filter(([moveIndex, score]) => {
+          if (moveIndex < OPENING_PLIES_TO_SKIP_FOR_DEEPENING) return false;
+          return suspiciousMoveIndexes.has(moveIndex) || score >= 120;
+        })
+        .sort((a, b) => b[1] - a[1]);
 
       for (const [moveIndex] of scoredTargets) {
-        if (selected.size >= Math.max(minimumTargets, suspiciousMoveIndexes.size)) break;
         selected.add(moveIndex);
+        if (selected.size >= MAX_DEEPENED_MOVES) break;
       }
 
-      for (const moveIndex of fallbackDeepTargets()) {
-        if (selected.size >= minimumTargets) break;
-        selected.add(moveIndex);
-      }
-
-      return Array.from(selected)
-        .sort((a, b) => {
-          const scoreA = deepTargetScores.get(a) ?? 0;
-          const scoreB = deepTargetScores.get(b) ?? 0;
-          return scoreB - scoreA;
-        })
-        .slice(0, MAX_DEEPENED_MOVES)
-        .sort((a, b) => a - b);
+      return Array.from(selected).sort((a, b) => a - b);
     }
 
     async function runFastScan() {
       while (nextPositionIndex < fens.length) {
         const positionIndex = nextPositionIndex;
         nextPositionIndex += 1;
-
+        setAnalyzeState({
+          status: "running",
+          progress,
+          total: totalUnits,
+          message: `Scanning position ${positionIndex + 1}/${fens.length}`,
+        });
         const move = moves[positionIndex - 1] ?? null;
         const label = move ? moveLabel(move) : "starting position";
 
@@ -1088,11 +1426,11 @@ function GameReviewPage() {
 
         const before = await evaluateCached(
           move.before,
-          engineDepth,
-          STOCKFISH_TIMEOUT_BY_DEPTH[engineDepth] ?? 2500,
+          0,
+          DEEPEN_TIMEOUT_BY_DEPTH[reviewStrength] ?? 1800,
           `${label} before`,
-          undefined,
-          STOCKFISH_HARD_TIMEOUT_BY_DEPTH[engineDepth] ?? 4200,
+          DEEPEN_MOVETIME_BY_DEPTH[reviewStrength] ?? 450,
+          DEEPEN_HARD_TIMEOUT_BY_DEPTH[reviewStrength] ?? 2600,
         );
 
         evaluations[moveIndex] = before;
@@ -1111,11 +1449,11 @@ function GameReviewPage() {
         } else {
           const after = await evaluateCached(
             move.after,
-            engineDepth,
-            STOCKFISH_TIMEOUT_BY_DEPTH[engineDepth] ?? 2500,
+            0,
+            DEEPEN_TIMEOUT_BY_DEPTH[reviewStrength] ?? 1800,
             `${label} after`,
-            undefined,
-            STOCKFISH_HARD_TIMEOUT_BY_DEPTH[engineDepth] ?? 4200,
+            DEEPEN_MOVETIME_BY_DEPTH[reviewStrength] ?? 450,
+            DEEPEN_HARD_TIMEOUT_BY_DEPTH[reviewStrength] ?? 2600,
           );
 
           evaluations[moveIndex + 1] = after;
@@ -1141,7 +1479,7 @@ function GameReviewPage() {
           completedDeepMoves === moveIndexes.length
         ) {
           flushUpdates(
-            `Confirming ${completedDeepMoves}/${moveIndexes.length} moves at depth ${engineDepth}`,
+            `Confirming ${completedDeepMoves}/${moveIndexes.length} moves at depth ${reviewStrength}`,
             progress,
             totalUnits,
           );
@@ -1155,11 +1493,17 @@ function GameReviewPage() {
       status: "running",
       progress: 0,
       total: fens.length,
-      message: "Starting Stockfish WASM worker",
+      message: hadVisibleAnalysis ? "Resetting move highlights" : "Starting Stockfish WASM worker",
     });
 
     try {
+      if (hadVisibleAnalysis) {
+        await waitForAnalysisResetPaint();
+      }
+
+      console.log("[review] initializing Stockfish");
       await engine.init();
+      console.log("[review] Stockfish initialized");
       setAnalyzeState({
         status: "running",
         progress: 0,
@@ -1168,7 +1512,6 @@ function GameReviewPage() {
       });
 
       await runFastScan();
-
       flushUpdates(
         `Quick scan complete - found ${suspiciousMoveIndexes.size} suspicious moves`,
         fens.length,
@@ -1198,13 +1541,13 @@ function GameReviewPage() {
         status: "running",
         progress,
         total: totalUnits,
-        message: `Confirming ${suspiciousMoves.length} moves at depth ${engineDepth}`,
+        message: `Confirming ${suspiciousMoves.length} moves at depth ${reviewStrength}`,
       });
 
       await deepenSuspiciousMoves(suspiciousMoves);
 
       flushUpdates(
-        `Confirmed ${suspiciousMoves.length}/${suspiciousMoves.length} moves at depth ${engineDepth}`,
+        `Confirmed ${suspiciousMoves.length}/${suspiciousMoves.length} moves at depth ${reviewStrength}`,
         totalUnits,
         totalUnits,
       );
@@ -1218,11 +1561,11 @@ function GameReviewPage() {
             ? `Stockfish review complete - ${skippedPositions} position(s) skipped`
             : restartedEngines > 0
               ? `Stockfish review complete - recovered engine ${restartedEngines} time(s)`
-              : `Stockfish review complete - depth ${engineDepth} confirmations applied`,
+              : `Stockfish review complete - d${reviewStrength} review strength applied`,
       });
     } catch (error) {
       flushUpdates("Stockfish analysis stopped", progress, totalUnits);
-
+      console.error("[review] analysis failed", error);
       setAnalyzeState({
         status: "error",
         progress,
@@ -1232,6 +1575,158 @@ function GameReviewPage() {
     } finally {
       pendingPositionUpdates = {};
       pendingMoveUpdates = {};
+      engine.dispose();
+    }
+  }
+
+  async function coachReviewGame() {
+    if (
+      !game ||
+      !moves.length ||
+      analyzeState.status === "running" ||
+      coachReviewState.status === "running"
+    ) {
+      return;
+    }
+
+    const targets = moves
+      .map((move, index) => ({ move, index }))
+      .filter(({ move }) => isPlayerMove(move, game.myColor));
+
+    if (targets.length === 0) {
+      setCoachReviewState({
+        status: "done",
+        progress: 0,
+        total: 0,
+        message: "No player moves found for coach review",
+      });
+      return;
+    }
+
+    const movetimeMs = coachReviewMoveTime(targets.length);
+    const timeoutMs = movetimeMs + COACH_REVIEW_TIMEOUT_BUFFER_MS;
+    const hardTimeoutMs = movetimeMs + COACH_REVIEW_HARD_TIMEOUT_BUFFER_MS;
+    const engine = new StockfishClient();
+    const startedAt = performance.now();
+
+    let progress = 0;
+    let pendingPositionUpdates: Record<number, PositionEvaluation> = {};
+    let pendingMoveUpdates: Record<number, MoveAnalysis> = {};
+    let pendingCoachInsights: Record<number, CoachInsight> = {};
+
+    function flushCoachUpdates(message: string, status: CoachReviewState["status"] = "running") {
+      const positionUpdates = pendingPositionUpdates;
+      const moveUpdates = pendingMoveUpdates;
+      const insightUpdates = pendingCoachInsights;
+
+      pendingPositionUpdates = {};
+      pendingMoveUpdates = {};
+      pendingCoachInsights = {};
+
+      if (Object.keys(positionUpdates).length > 0) {
+        setPositionAnalysis((current) => ({
+          ...current,
+          ...positionUpdates,
+        }));
+      }
+
+      if (Object.keys(moveUpdates).length > 0) {
+        setAnalysis((current) => ({
+          ...current,
+          ...moveUpdates,
+        }));
+      }
+
+      if (Object.keys(insightUpdates).length > 0) {
+        setCoachInsights((current) => ({
+          ...current,
+          ...insightUpdates,
+        }));
+      }
+
+      setCoachReviewState({
+        status,
+        progress,
+        total: targets.length,
+        message,
+      });
+    }
+
+    async function evaluateCoachPosition(fenToEvaluate: string, label: string) {
+      const cacheKey = `coach:m${movetimeMs}:${fenToEvaluate}`;
+      const cached = evaluationCacheRef.current.get(cacheKey);
+      if (cached) return cached;
+
+      try {
+        const rawEvaluation = await engine.evaluateFen(fenToEvaluate, {
+          movetimeMs,
+          timeoutMs,
+          hardTimeoutMs,
+        });
+        const positionEvaluation = toPositionEvaluation(fenToEvaluate, rawEvaluation);
+        evaluationCacheRef.current.set(cacheKey, positionEvaluation);
+        return positionEvaluation;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : `Coach review skipped ${label}`;
+        return emptyPositionEvaluation(fenToEvaluate, message);
+      }
+    }
+
+    setCoachInsights({});
+    setCoachReviewState({
+      status: "running",
+      progress: 0,
+      total: targets.length,
+      message: "Starting deep coach review",
+    });
+
+    try {
+      await engine.init();
+
+      for (const { move, index } of targets) {
+        setCoachReviewState({
+          status: "running",
+          progress,
+          total: targets.length,
+          message: `Deep reviewing ${moveLabel(move)} (${progress + 1}/${targets.length})`,
+        });
+
+        const before = await evaluateCoachPosition(move.before, `${moveLabel(move)} before`);
+        const after = await evaluateCoachPosition(move.after, `${moveLabel(move)} after`);
+        const moveAnalysis =
+          before.error || after.error
+            ? skippedMoveAnalysis(move, before, after)
+            : classifyMove({ move, best: before, after });
+
+        pendingPositionUpdates[index] = before;
+        pendingPositionUpdates[index + 1] = after;
+        pendingMoveUpdates[move.ply] = moveAnalysis;
+
+        const coachInsight = buildCoachInsight(move, moveAnalysis);
+        if (coachInsight) {
+          pendingCoachInsights[move.ply] = coachInsight;
+        }
+
+        progress += 1;
+        flushCoachUpdates(`Coach reviewed ${progress}/${targets.length} of your moves`);
+      }
+
+      const elapsedSeconds = Math.round((performance.now() - startedAt) / 1000);
+      flushCoachUpdates(
+        `Coach review complete - ${targets.length} of your moves checked in ${elapsedSeconds}s`,
+        "done",
+      );
+    } catch (error) {
+      console.error("[review] coach review failed", error);
+      flushCoachUpdates(
+        error instanceof Error ? error.message : "Coach review failed",
+        "error",
+      );
+    } finally {
+      pendingPositionUpdates = {};
+      pendingMoveUpdates = {};
+      pendingCoachInsights = {};
       engine.dispose();
     }
   }
@@ -1273,15 +1768,15 @@ function GameReviewPage() {
               </a>
             </Button>
             <Select
-              value={String(engineDepth)}
-              onValueChange={(value) => setEngineDepth(Number(value))}
-              disabled={analyzeState.status === "running"}
+              value={String(reviewStrength)}
+              onValueChange={(value) => setReviewStrength(Number(value))}
+              disabled={analyzeState.status === "running" || coachReviewState.status === "running"}
             >
               <SelectTrigger className="h-9 w-[150px] border-border/70 bg-background/60 font-mono text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {STOCKFISH_DEPTH_OPTIONS.map((option) => (
+                {REVIEW_STRENGTH_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={String(option.value)}>
                     {option.label} - {option.note}
                   </SelectItem>
@@ -1291,7 +1786,7 @@ function GameReviewPage() {
             <Button
               size="sm"
               onClick={analyzeGame}
-              disabled={analyzeState.status === "running"}
+              disabled={analyzeState.status === "running" || coachReviewState.status === "running"}
               className="bg-accent text-accent-foreground hover:bg-accent/90"
             >
               {analyzeState.status === "running" ? (
@@ -1299,7 +1794,21 @@ function GameReviewPage() {
               ) : (
                 <BrainCircuit className="mr-1.5 h-4 w-4" />
               )}
-              Analyze d{engineDepth}
+              Analyze d{reviewStrength}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={coachReviewGame}
+              disabled={analyzeState.status === "running" || coachReviewState.status === "running"}
+              className="border-accent/50 bg-accent/10 text-accent hover:bg-accent/15"
+            >
+              {coachReviewState.status === "running" ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <GraduationCap className="mr-1.5 h-4 w-4" />
+              )}
+              Coach Review
             </Button>
           </div>
         }
@@ -1327,8 +1836,8 @@ function GameReviewPage() {
       <div
         className={`grid grid-cols-1 gap-8 transition-[grid-template-columns] duration-500 ease-out ${
           sidebarCollapsed
-            ? "xl:grid-cols-[minmax(420px,760px)_minmax(420px,1fr)]"
-            : "xl:grid-cols-[minmax(340px,620px)_minmax(420px,1fr)]"
+            ? "xl:grid-cols-[minmax(420px,900px)_minmax(420px,1fr)]"
+            : "xl:grid-cols-[minmax(340px,760px)_minmax(420px,1fr)]"
         }`}
       >
         <div className="space-y-5">
@@ -1348,12 +1857,23 @@ function GameReviewPage() {
               <Badge variant="outline" className="w-14 justify-center font-mono text-[10px]">
                 {effectiveBoardZoom}%
               </Badge>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={flipBoard}
+                aria-label="Flip board"
+                title="Flip board"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </Button>
             </div>
             <div
-              className={`transition-[max-width,margin] duration-500 ease-out ${
+              className={`transition-[width,max-width,margin] duration-500 ease-out ${
                 sidebarCollapsed ? "xl:mr-auto xl:ml-0" : "mx-auto"
               }`}
-              style={{ maxWidth: `${boardPixelSize + 60}px` }}
+              style={{ width: `${boardAreaPixelSize}px`, maxWidth: "100%" }}
             >
               <div className="flex items-stretch gap-3">
                 <div className="aspect-square min-w-0 flex-1 overflow-hidden rounded-md border border-border/60 bg-muted shadow-elegant">
@@ -1362,7 +1882,7 @@ function GameReviewPage() {
                       options={{
                         id: `game-review-${game.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
                         position: fen,
-                        boardOrientation: game.myColor,
+                        boardOrientation,
                         allowDragging: true,
                         allowDrawingArrows: true,
                         clearArrowsOnClick: false,
@@ -1389,15 +1909,7 @@ function GameReviewPage() {
                           selectedSquare,
                           markedSquares,
                         ),
-                        arrows: displayedMove
-                          ? [
-                              {
-                                startSquare: displayedMove.from,
-                                endSquare: displayedMove.to,
-                                color: annotationColor(selectedAnnotation),
-                              },
-                            ]
-                          : [],
+                        arrows: boardArrows,
                         onPieceDrop: ({ sourceSquare, targetSquare }) =>
                           targetSquare ? playBoardMove(sourceSquare, targetSquare) : false,
                         onSquareClick: ({ piece, square }) =>
@@ -1413,7 +1925,8 @@ function GameReviewPage() {
                 <EvaluationBar
                   whiteCp={displayedEvalWhite}
                   depth={displayedEvalDepth}
-                  analyzing={analyzeState.status === "running"}
+                  analyzing={isEvaluationBarLoading}
+                  orientation={boardOrientation}
                 />
               </div>
             </div>
@@ -1549,6 +2062,25 @@ function GameReviewPage() {
                   Best move: {selectedAnalysis.bestSan}
                 </div>
               )}
+              {!latestVariationMove && selectedIsPlayerMove && selectedCoachInsight && (
+                <div className="mt-3 rounded border border-accent/30 bg-accent/[0.06] px-3 py-2 text-sm">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2 font-display font-semibold text-accent">
+                      <MessageSquareText className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{selectedCoachInsight.title}</span>
+                    </div>
+                    <Badge variant="outline" className="shrink-0 font-mono text-[10px] uppercase">
+                      d{selectedCoachInsight.depth}
+                    </Badge>
+                  </div>
+                  <p className="text-sm leading-relaxed text-foreground">
+                    {selectedCoachInsight.explanation}
+                  </p>
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    {selectedCoachInsight.advice}
+                  </p>
+                </div>
+              )}
             </div>
 
             <VariationLine
@@ -1569,7 +2101,7 @@ function GameReviewPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <Badge variant="outline" className="font-mono text-[10px] uppercase">
-                    d{engineDepth}
+                    d{reviewStrength}
                   </Badge>
                   <Badge variant="outline" className="font-mono text-[10px] uppercase">
                     {progressPct}%
@@ -1577,6 +2109,24 @@ function GameReviewPage() {
                 </div>
               </div>
               <Progress value={progressPct} className="h-2" />
+              {coachReviewState.status !== "idle" && (
+                <div className="mt-4 rounded-md border border-accent/25 bg-accent/[0.04] p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2 text-sm">
+                      {coachReviewState.status === "running" ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
+                      ) : (
+                        <GraduationCap className="h-4 w-4 shrink-0 text-accent" />
+                      )}
+                      <span className="truncate">{coachReviewState.message}</span>
+                    </div>
+                    <Badge variant="outline" className="shrink-0 font-mono text-[10px] uppercase">
+                      {coachProgressPct}%
+                    </Badge>
+                  </div>
+                  <Progress value={coachProgressPct} className="h-1.5" />
+                </div>
+              )}
               <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
                 {[
                   ["brilliancy", summary.brilliancy],

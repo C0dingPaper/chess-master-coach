@@ -1,5 +1,3 @@
-import stockfishScriptUrl from "stockfish/bin/stockfish-18-lite-single.js?url";
-import stockfishWasmUrl from "stockfish/bin/stockfish-18-lite-single.wasm?url";
 import type { EngineEvaluation } from "@/lib/chess/engine-evaluation";
 
 export type { EngineEvaluation } from "@/lib/chess/engine-evaluation";
@@ -7,6 +5,13 @@ export { evaluationToCentipawns } from "@/lib/chess/engine-evaluation";
 
 type LineHandler = (line: string) => void;
 type ErrorHandler = (error: Error) => void;
+
+const STOCKFISH_DEBUG = true;
+
+function debugStockfish(...args: unknown[]) {
+  if (!STOCKFISH_DEBUG) return;
+  console.log("[stockfish]", ...args);
+}
 
 type EvaluateFenOptions = {
   movetimeMs?: number;
@@ -29,7 +34,7 @@ function parseInfoLine(line: string, current: EngineEvaluation): EngineEvaluatio
 }
 
 function workerUrl() {
-  return `${stockfishScriptUrl}#${encodeURIComponent(stockfishWasmUrl)},worker`;
+  return `/stockfish/stockfish-18-lite-single.js#/stockfish/stockfish-18-lite-single.wasm`;
 }
 
 export class StockfishClient {
@@ -41,25 +46,41 @@ export class StockfishClient {
   private queue: Promise<void> = Promise.resolve();
 
   constructor() {
+    debugStockfish("creating worker", workerUrl());
+
     this.worker = new Worker(workerUrl(), { name: "stockfish-review" });
+
+    debugStockfish("worker created");
 
     this.worker.addEventListener("message", (event) => {
       const line = String(event.data);
+      debugStockfish("<<", line);
+
       for (const handler of this.handlers) handler(line);
     });
 
     this.worker.addEventListener("error", (event) => {
+      debugStockfish("worker error", {
+        message: event.message,
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+      });
+
       const error = new Error(event.message || "Stockfish worker failed");
       for (const handler of this.errorHandlers) handler(error);
     });
 
-    this.worker.addEventListener("messageerror", () => {
+    this.worker.addEventListener("messageerror", (event) => {
+      debugStockfish("worker messageerror", event);
+
       const error = new Error("Stockfish sent an unreadable message");
       for (const handler of this.errorHandlers) handler(error);
     });
   }
 
   private send(command: string) {
+    debugStockfish(">>", command);
     this.worker.postMessage(command);
   }
 
@@ -97,6 +118,11 @@ export class StockfishClient {
   }
 
   async init() {
+    debugStockfish("init called", {
+      initialized: this.initialized,
+      initializing: Boolean(this.initializing),
+    });
+
     if (this.initialized) return;
     if (this.initializing) return this.initializing;
 
@@ -110,30 +136,43 @@ export class StockfishClient {
   }
 
   private async initInternal() {
+    const startedAt = performance.now();
+    debugStockfish("init started");
+
     const uciReady = this.waitFor(
       (line) => line === "uciok",
-      30000,
+      60000,
       "Stockfish timed out while loading",
     );
 
     this.send("uci");
     await uciReady;
 
-    this.send("setoption name Hash value 32");
+    debugStockfish("uci ready after", Math.round(performance.now() - startedAt), "ms");
+
+    this.send("setoption name Hash value 128");
     this.send("setoption name Skill Level value 20");
     this.send("setoption name Move Overhead value 10");
+    this.send("setoption name MultiPV value 1");
+    this.send("setoption name UCI_ShowWDL value true");
+
+    const readyStartedAt = performance.now();
 
     const engineReady = this.waitFor(
       (line) => line === "readyok",
-      12000,
+      30000,
       "Stockfish timed out while preparing",
     );
 
     this.send("isready");
     await engineReady;
 
+    debugStockfish("readyok after", Math.round(performance.now() - readyStartedAt), "ms");
+
     this.send("ucinewgame");
     this.initialized = true;
+
+    debugStockfish("init complete after", Math.round(performance.now() - startedAt), "ms");
   }
 
   async evaluateFen(fen: string, options: EvaluateFenOptions = {}): Promise<EngineEvaluation> {
@@ -155,7 +194,14 @@ export class StockfishClient {
     { movetimeMs = 220, depth, timeoutMs, hardTimeoutMs }: EvaluateFenOptions = {},
   ): Promise<EngineEvaluation> {
     await this.init();
-
+    const startedAt = performance.now();
+    debugStockfish("evaluate started", {
+      fen,
+      depth,
+      movetimeMs,
+      timeoutMs,
+      hardTimeoutMs,
+    });
     return new Promise((resolve, reject) => {
       let evaluation: EngineEvaluation = {
         bestMove: null,
@@ -208,10 +254,14 @@ export class StockfishClient {
           evaluation = parseInfoLine(line, evaluation);
           return;
         }
-
         if (!line.startsWith("bestmove ")) return;
-
         const [, bestMove] = line.split(/\s+/);
+        debugStockfish("bestmove after", Math.round(performance.now() - startedAt), "ms", {
+          bestMove,
+          depth: evaluation.depth,
+          cp: evaluation.cp,
+          mate: evaluation.mate,
+        });
 
         resolved = true;
         cleanup();

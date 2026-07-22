@@ -31,9 +31,7 @@ type EloCarrier = {
   draws: number;
   losses: number;
   scorePct: number;
-  pointsAboveBreakEven: number;
   ratingGain: number | null;
-  carrierScore: number;
   smallSample: boolean;
 };
 
@@ -51,7 +49,7 @@ function formatStandardMoveLabel(depth: number, san: string) {
 }
 
 function formatTreeMoveLabel(color: Color, depth: number, san: string) {
-  if (color === "black" && depth === 0) return `Against ${formatStandardMoveLabel(depth, san)}`;
+  if (color === "black" && depth === 0) return `Against ${san}`;
   return formatStandardMoveLabel(depth, san);
 }
 
@@ -64,20 +62,15 @@ function formatSignedInt(value: number) {
   return `${value}`;
 }
 
-function formatSignedDecimal(value: number) {
-  const rounded = Math.round(value * 10) / 10;
-  if (rounded > 0) return `+${rounded}`;
-  return `${rounded}`;
-}
-
-function computeEloCarrier(games: StoredGame[]): EloCarrier | null {
+function computeEloCarrier(games: StoredGame[], color: Color): EloCarrier | null {
   const groups = new Map<
     string,
     { color: Color; opening: string; eco: string; games: StoredGame[] }
   >();
 
   for (const game of games) {
-    const color = game.myColor;
+    if (game.myColor !== color) continue;
+
     const opening = game.opening || "Unknown opening";
     const eco = game.eco || "ECO";
     const key = `${color}\u0000${opening}\u0000${eco}`;
@@ -92,14 +85,11 @@ function computeEloCarrier(games: StoredGame[]): EloCarrier | null {
     const losses = group.games.filter((game) => game.result === "loss").length;
     const count = group.games.length;
     const points = wins + draws * 0.5;
-    const pointsAboveBreakEven = points - count * 0.5;
     const rated = group.games
       .filter((game) => game.myRating != null)
       .sort((a, b) => a.endTime - b.endTime);
     const ratingGain =
       rated.length >= 2 ? rated[rated.length - 1].myRating! - rated[0].myRating! : null;
-    const carrierScore = pointsAboveBreakEven * 10 + (ratingGain ?? 0) * 0.1;
-
     return {
       color: group.color,
       opening: group.opening,
@@ -109,19 +99,15 @@ function computeEloCarrier(games: StoredGame[]): EloCarrier | null {
       draws,
       losses,
       scorePct: Math.round((points / count) * 100),
-      pointsAboveBreakEven,
       ratingGain,
-      carrierScore,
       smallSample: count < 3,
     };
   });
 
   if (candidates.length === 0) return null;
 
-  const eligible = candidates.filter((candidate) => candidate.count >= 3);
-  const pool = eligible.length > 0 ? eligible : candidates;
-  return [...pool].sort(
-    (a, b) => b.carrierScore - a.carrierScore || b.count - a.count || b.scorePct - a.scorePct,
+  return [...candidates].sort(
+    (a, b) => b.wins - a.wins || b.scorePct - a.scorePct || b.count - a.count,
   )[0];
 }
 
@@ -142,7 +128,7 @@ function NodeRow({
   activeFen: string;
   onPick: (line: Omit<SelectedLine, "color">) => void;
 }) {
-  const [open, setOpen] = useState(depth < 2);
+  const [open, setOpen] = useState(false);
   const winRate = node.count ? Math.round((node.wins / node.count) * 100) : 0;
   const hasChildren = node.children.length > 0;
   const line = [...ancestors, node];
@@ -277,17 +263,15 @@ function TreeSection({
 
 function EloCarrierCard({ carrier }: { carrier: EloCarrier | null }) {
   if (!carrier) return null;
+  const colorLabel = carrier.color === "white" ? "White" : "Black";
 
   return (
-    <Card className="mb-6 overflow-hidden border-accent/30 bg-card/40">
+    <Card className="overflow-hidden border-accent/30 bg-card/40">
       <div className="grid gap-px bg-border/50 md:grid-cols-[1.4fr_1fr]">
         <div className="bg-card/95 p-5">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Badge className="border-accent/30 bg-accent/15 font-mono text-[10px] uppercase tracking-widest text-accent hover:bg-accent/15">
-              Elo carrier
-            </Badge>
-            <Badge variant="outline" className="font-mono text-[10px] capitalize">
-              {carrier.color}
+              {colorLabel} most wins
             </Badge>
             <Badge variant="outline" className="font-mono text-[10px]">
               {carrier.eco}
@@ -300,8 +284,8 @@ function EloCarrierCard({ carrier }: { carrier: EloCarrier | null }) {
           </div>
           <h2 className="font-display text-2xl font-semibold">{carrier.opening}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            {formatSignedDecimal(carrier.pointsAboveBreakEven)} points above 50% across{" "}
-            {carrier.count} games.
+            Your winningest {colorLabel.toLowerCase()} opening: {carrier.wins} wins across{" "}
+            {carrier.count} games, with a {carrier.scorePct}% score.
             {carrier.ratingGain == null
               ? " Rating trend needs at least two rated games."
               : ` ${formatSignedInt(carrier.ratingGain)} rating over this sample.`}
@@ -434,7 +418,13 @@ function OpeningsPage() {
       : picked.nodes
           .slice(0, Math.max(0, picked.index + 1))
           .map((node, depth) => formatTreeMoveLabel(picked.color, depth, node.san));
-  const eloCarrier = useMemo(() => computeEloCarrier(games), [games]);
+  const eloCarriers = useMemo(
+    () => ({
+      white: computeEloCarrier(games, "white"),
+      black: computeEloCarrier(games, "black"),
+    }),
+    [games],
+  );
 
   function moveSelection(delta: number) {
     if (!picked) return;
@@ -476,7 +466,10 @@ function OpeningsPage() {
         }
       />
 
-      <EloCarrierCard carrier={eloCarrier} />
+      <div className="mb-6 grid gap-4 lg:grid-cols-2">
+        <EloCarrierCard carrier={eloCarriers.white} />
+        <EloCarrierCard carrier={eloCarriers.black} />
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <Card className="border-border/60 bg-card/40 p-3 lg:col-span-3">
