@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyConnect } from "@/components/empty-connect";
 import { useConnection, useGames } from "@/lib/chess/hooks";
 import type { StoredGame } from "@/lib/chess/types";
-import { ArrowUpRight, Download, Filter } from "lucide-react";
+import { ArrowRight, Download, Filter } from "lucide-react";
 import { useMemo, useState } from "react";
 
 export const Route = createFileRoute("/app/games")({
@@ -180,13 +180,9 @@ function GamesPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Button variant="ghost" size="sm" asChild>
-                      <a
-                        href={`/app/games/${encodeURIComponent(g.id)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Review <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-                      </a>
+                      <Link to="/app/games/$gameId" params={{ gameId: g.id }}>
+                        Review <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                      </Link>
                     </Button>
                   </td>
                 </tr>

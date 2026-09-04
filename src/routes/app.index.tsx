@@ -200,11 +200,10 @@ function Overview() {
           </div>
           <div className="space-y-1">
             {recent.map((g) => (
-              <a
+              <Link
                 key={g.id}
-                href={g.url}
-                target="_blank"
-                rel="noreferrer"
+                to="/app/games/$gameId"
+                params={{ gameId: g.id }}
                 className="group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition hover:bg-muted/40"
               >
                 <div
@@ -237,7 +236,7 @@ function Overview() {
                     {g.accuracy == null ? formatDate(g.endTime) : `${g.accuracy}% acc`}
                   </div>
                 </div>
-              </a>
+              </Link>
             ))}
           </div>
         </Card>

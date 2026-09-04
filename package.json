@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "dev:network": "vite dev --host 0.0.0.0",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
