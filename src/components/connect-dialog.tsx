@@ -14,7 +14,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
 import { setConnection, putGames, clearGames } from "@/lib/chess/storage";
 import { importGames, type ImportProgress } from "@/lib/chess/import";
-import type { Platform } from "@/lib/chess/types";
+import type { ImportCategory, Platform } from "@/lib/chess/types";
 import { toast } from "sonner";
 import { Loader2, Plug } from "lucide-react";
 
@@ -23,6 +23,7 @@ interface Props {
   onOpenChange: (v: boolean) => void;
   initialUsername?: string;
   initialPlatform?: Platform;
+  initialImportCategory?: ImportCategory;
 }
 
 function normalizeUsernameInput(value: string) {
@@ -34,9 +35,11 @@ export function ConnectDialog({
   onOpenChange,
   initialUsername = "",
   initialPlatform = "chess.com",
+  initialImportCategory = "all",
 }: Props) {
   const [username, setUsername] = useState(() => normalizeUsernameInput(initialUsername));
   const [platform, setPlatform] = useState<Platform>(initialPlatform);
+  const [category, setCategory] = useState<ImportCategory>(initialImportCategory);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -52,15 +55,23 @@ export function ConnectDialog({
     setBusy(true);
     setProgress({ fetched: 0, parsed: 0, total: null, status: "Starting…" });
     try {
-      const { games, errors } = await importGames(platform, u, setProgress);
+      const { games, errors } = await importGames(platform, u, setProgress, category);
       if (games.length === 0) {
-        toast.error(`No games found for ${u} on ${platform}`);
+        toast.error(
+          `No ${category === "all" ? "" : `${category} `}games found for ${u} on ${platform}`,
+        );
         setBusy(false);
         return;
       }
       await clearGames();
       await putGames(games);
-      await setConnection({ username: u, platform, linkedAt: Date.now(), lastImport: Date.now() });
+      await setConnection({
+        username: u,
+        platform,
+        linkedAt: Date.now(),
+        lastImport: Date.now(),
+        importCategory: category,
+      });
       toast.success(`Imported ${games.length} games from ${platform}`, {
         description: errors.length ? `${errors.length} entries skipped` : undefined,
       });
@@ -121,6 +132,37 @@ export function ConnectDialog({
                 </Label>
               ))}
             </RadioGroup>
+          </div>
+
+          <div>
+            <Label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Games to import
+            </Label>
+            <RadioGroup
+              value={category}
+              onValueChange={(value) => setCategory(value as ImportCategory)}
+              disabled={busy}
+              aria-label="Games to import"
+              className="mt-2 grid grid-cols-3 gap-2"
+            >
+              {(["all", "rapid", "classical"] as ImportCategory[]).map((option) => (
+                <Label
+                  key={option}
+                  htmlFor={`import-${option}`}
+                  className={`flex items-center gap-2 rounded-md border p-3 cursor-pointer ${category === option ? "border-accent bg-accent/5" : "border-border hover:bg-muted/40"}`}
+                >
+                  <RadioGroupItem id={`import-${option}`} value={option} />
+                  <span className="text-sm">
+                    {option === "all" ? "All games" : option === "rapid" ? "Rapid" : "Classical"}
+                  </span>
+                </Label>
+              ))}
+            </RadioGroup>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              {platform === "chess.com"
+                ? "Rapid: under 30 minutes. Classical: 30+ minutes. Both use Chess.com rapid games, counting increment over 40 moves. All includes blitz and bullet."
+                : "Uses Lichess Rapid and Classical categories. All includes blitz and bullet. Up to 200 matching games."}
+            </p>
           </div>
 
           <div>

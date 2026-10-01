@@ -1,3 +1,4 @@
+import { timeFormatLabel } from "@/lib/chess/time-format";
 import { createFileRoute } from "@tanstack/react-router";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
@@ -1859,7 +1860,7 @@ function GameReviewPage() {
           { label: "Result", value: game.result, className: resultClass(game.result) },
           { label: "Color", value: game.myColor },
           { label: "Opponent", value: `${game.oppName || "Unknown"} ${game.oppRating ?? ""}` },
-          { label: "Time", value: game.timeControl || "unknown" },
+          { label: "Format", value: timeFormatLabel(game) },
           { label: "Moves", value: String(game.movesCount) },
         ].map((item) => (
           <div key={item.label} className="bg-card p-4">

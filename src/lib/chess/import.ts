@@ -1,5 +1,17 @@
 import { buildStoredGame } from "./pgn";
-import type { Platform, StoredGame } from "./types";
+import type { ImportCategory, Platform, StoredGame } from "./types";
+
+export function matchesChessComCategory(
+  game: { time_class: string; time_control: string },
+  category: ImportCategory,
+) {
+  if (category === "all") return true;
+  if (game.time_class !== "rapid") return false;
+  const match = /^(\d+)(?:\+(\d+))?$/.exec(game.time_control);
+  if (!match) return false;
+  const estimatedSeconds = Number(match[1]) + 40 * Number(match[2] ?? 0);
+  return category === "classical" ? estimatedSeconds >= 1800 : estimatedSeconds < 1800;
+}
 
 export interface ImportProgress {
   fetched: number;
@@ -26,6 +38,7 @@ export async function importChessCom(
   username: string,
   maxMonths = 6,
   report?: Reporter,
+  category: ImportCategory = "all",
 ): Promise<ImportResult> {
   const errors: string[] = [];
   report?.({ fetched: 0, parsed: 0, total: null, status: "Fetching archives…" });
@@ -60,7 +73,7 @@ export async function importChessCom(
       }
       const data = (await res.json()) as { games: ChessComGame[] };
       for (const g of data.games) {
-        if (!g.pgn) continue;
+        if (!g.pgn || !matchesChessComCategory(g, category)) continue;
         try {
           const id = g.url.split("/").pop() ?? `${g.end_time}`;
           const accuracy =
@@ -99,6 +112,8 @@ export async function importChessCom(
 }
 
 interface ChessComGame {
+  time_class: string;
+  time_control: string;
   url: string;
   pgn: string;
   end_time: number;
@@ -112,12 +127,13 @@ export async function importLichess(
   username: string,
   max = 200,
   report?: Reporter,
+  category: ImportCategory = "all",
 ): Promise<ImportResult> {
   const errors: string[] = [];
   report?.({ fetched: 0, parsed: 0, total: max, status: "Streaming PGNs from Lichess…" });
 
   const res = await fetch(
-    `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=${max}&pgnInJson=true&clocks=false&evals=false&opening=true`,
+    `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=${max}&pgnInJson=true&clocks=false&evals=false&opening=true${category === "all" ? "" : `&perfType=${category}`}`,
     { headers: { Accept: "application/x-ndjson" } },
   );
   if (!res.ok || !res.body) {
@@ -181,7 +197,8 @@ export async function importGames(
   platform: Platform,
   username: string,
   report?: Reporter,
+  category: ImportCategory = "all",
 ): Promise<ImportResult> {
-  if (platform === "chess.com") return importChessCom(username, 6, report);
-  return importLichess(username, 200, report);
+  if (platform === "chess.com") return importChessCom(username, 6, report, category);
+  return importLichess(username, 200, report, category);
 }

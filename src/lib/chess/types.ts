@@ -1,4 +1,5 @@
 export type Platform = "chess.com" | "lichess";
+export type ImportCategory = "all" | "rapid" | "classical";
 export type Color = "white" | "black";
 export type Result = "win" | "loss" | "draw";
 
@@ -57,4 +58,5 @@ export interface Connection {
   platform: Platform;
   linkedAt: number;
   lastImport: number | null;
+  importCategory?: ImportCategory;
 }

@@ -46,7 +46,7 @@ function AppLayout() {
       <footer className="mx-4 flex flex-wrap items-center justify-between gap-2 border-t border-border py-5 text-[10px] text-muted-foreground md:mx-8"><span>NeverPay4Chess · A little better, every game.</span><span className="flex items-center gap-1.5"><ShieldCheck className="h-3 w-3" /> Private on this device. Free forever.</span></footer>
     </SidebarInset>
     <Suspense fallback={null}>
-      {open && <ConnectDialog open={open} onOpenChange={setOpen} initialUsername={conn?.username} initialPlatform={conn?.platform} />}
+      {open && <ConnectDialog open={open} onOpenChange={setOpen} initialUsername={conn?.username} initialPlatform={conn?.platform} initialImportCategory={conn?.importCategory} />}
       {searchOpen && <WorkspaceSearch open={searchOpen} onOpenChange={setSearchOpen} />}
     </Suspense>
   </SidebarProvider>;

@@ -1,3 +1,4 @@
+import { timeFormatLabel } from "@/lib/chess/time-format";
 ﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
@@ -211,7 +212,7 @@ function GamesPage() {
                   Opening
                 </th>
                 <th scope="col" className="hidden px-4 py-3.5 text-left xl:table-cell">
-                  Time
+                  Format
                 </th>
                 <th scope="col" className="hidden px-4 py-3.5 text-right lg:table-cell">
                   Accuracy
@@ -269,7 +270,7 @@ function GamesPage() {
                     </Badge>
                   </td>
                   <td className="hidden whitespace-nowrap px-4 py-4 text-xs text-muted-foreground tabular-nums xl:table-cell">
-                    {game.timeControl || "Unknown"}
+                    {timeFormatLabel(game)}
                   </td>
                   <td className="hidden px-4 py-4 text-right text-sm font-medium tabular-nums lg:table-cell">
                     {game.accuracy == null ? (
