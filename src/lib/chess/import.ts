@@ -10,6 +10,12 @@ export interface ImportProgress {
 
 type Reporter = (p: ImportProgress) => void;
 
+// Parsing a complete archive can otherwise monopolize the main thread for
+// seconds. Give input, progress updates, and board painting a turn between batches.
+function yieldToBrowser() {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 export interface ImportResult {
   games: StoredGame[];
   errors: string[];
@@ -71,6 +77,15 @@ export async function importChessCom(
               accuracy: typeof accuracy === "number" ? Math.round(accuracy * 10) / 10 : null,
             }),
           );
+          if (games.length % 10 === 0) {
+            report?.({
+              fetched: i,
+              parsed: games.length,
+              total: recent.length,
+              status: `Parsing month ${i + 1}/${recent.length}…`,
+            });
+            await yieldToBrowser();
+          }
         } catch (e) {
           errors.push(`Parse error: ${(e as Error).message}`);
         }
@@ -139,13 +154,15 @@ export async function importLichess(
             accuracy: null,
           }),
         );
-        if (games.length % 10 === 0)
+        if (games.length % 10 === 0) {
           report?.({
             fetched: games.length,
             parsed: games.length,
             total: max,
             status: "Streaming…",
           });
+          await yieldToBrowser();
+        }
       } catch (e) {
         errors.push(`Parse error: ${(e as Error).message}`);
       }

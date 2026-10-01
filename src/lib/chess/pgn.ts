@@ -1,6 +1,11 @@
 import { Chess } from "chess.js";
 import type { Color, Result, StoredGame } from "./types";
 
+// Imported PGNs are revisited by opening exploration and game review. Keep a
+// bounded cache so those visits do not repeatedly replay the entire game.
+const SAN_CACHE_LIMIT = 256;
+const sanCache = new Map<string, string[]>();
+
 function tag(pgn: string, key: string): string | null {
   const re = new RegExp(`\\[${key}\\s+"([^"]*)"\\]`);
   const m = pgn.match(re);
@@ -28,14 +33,7 @@ export interface ParsedGameMeta {
 }
 
 export function parsePgnMeta(pgn: string): ParsedGameMeta {
-  const chess = new Chess();
-  let movesCount = 0;
-  try {
-    chess.loadPgn(pgn, { strict: false });
-    movesCount = chess.history().length;
-  } catch {
-    movesCount = 0;
-  }
+  const movesCount = pgnToSanMoves(pgn).length;
 
   const result = (tag(pgn, "Result") ?? "*") as ParsedGameMeta["result"];
   const dateStr = tag(pgn, "UTCDate") ?? tag(pgn, "Date") ?? "";
@@ -105,11 +103,24 @@ export function buildStoredGame(args: {
 
 /** Returns the SAN moves array (no move numbers) from a PGN. */
 export function pgnToSanMoves(pgn: string): string[] {
+  const cached = sanCache.get(pgn);
+  if (cached) {
+    sanCache.delete(pgn);
+    sanCache.set(pgn, cached);
+    return [...cached];
+  }
+
+  let moves: string[];
   try {
     const c = new Chess();
     c.loadPgn(pgn, { strict: false });
-    return c.history();
+    moves = c.history();
   } catch {
-    return [];
+    moves = [];
   }
+  if (sanCache.size >= SAN_CACHE_LIMIT) {
+    sanCache.delete(sanCache.keys().next().value!);
+  }
+  sanCache.set(pgn, moves);
+  return [...moves];
 }

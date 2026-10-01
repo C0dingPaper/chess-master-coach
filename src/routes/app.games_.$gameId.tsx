@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSidebar } from "@/components/ui/sidebar";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -42,8 +41,9 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Chessboard } from "react-chessboard";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ChessboardOptions } from "react-chessboard";
+import { ChessBoard } from "@/components/chess-board";
 
 export const Route = createFileRoute("/app/games_/$gameId")({
   head: () => ({ meta: [{ title: "Game Review - NeverPay4Chess" }] }),
@@ -211,13 +211,13 @@ function annotationLabel(kind: AnnotationKind) {
 function annotationClass(kind: AnnotationKind, active = false) {
   const focus = active ? "ring-1 ring-offset-1 ring-offset-background" : "";
   if (kind === "brilliancy")
-    return `${focus} border-blue-400/50 bg-blue-500/20 text-blue-100 ring-blue-400/70`;
+    return `${focus} border-blue-200 bg-blue-50 text-blue-700 ring-blue-400/70`;
   if (kind === "good")
-    return `${focus} border-cyan-300/45 bg-cyan-400/10 text-cyan-100 ring-cyan-300/70`;
+    return `${focus} border-emerald-200 bg-emerald-50 text-emerald-800 ring-emerald-400/70`;
   if (kind === "inaccuracy")
-    return `${focus} border-yellow-300/45 bg-yellow-400/15 text-yellow-100 ring-yellow-300/70`;
+    return `${focus} border-amber-200 bg-amber-50 text-amber-800 ring-amber-400/70`;
   if (kind === "mistake")
-    return `${focus} border-orange-300/45 bg-orange-500/15 text-orange-100 ring-orange-300/70`;
+    return `${focus} border-orange-200 bg-orange-50 text-orange-800 ring-orange-400/70`;
   if (kind === "blunder") return `${focus} border-loss/50 bg-loss/20 text-loss ring-loss/70`;
   if (kind === "test") return `${focus} border-accent/45 bg-accent/15 text-accent ring-accent/70`;
   return `${focus} border-border/50 bg-muted/30 text-muted-foreground ring-border/70`;
@@ -573,9 +573,7 @@ function buildCoachInsight(move: ReviewMove, moveAnalysis: MoveAnalysis): CoachI
       moveAnalysis.loss,
     )} compared with ${bestMoveText}. Before the move the position was ${formatEval(
       beforeForPlayer,
-    )} for you; after it, the position is ${formatEval(afterForPlayer)}. ${bestMoveTheme(
-      bestSan,
-    )}`,
+    )} for you; after it, the position is ${formatEval(afterForPlayer)}. ${bestMoveTheme(bestSan)}`,
     advice: coachAdvice(moveAnalysis.annotation),
     bestSan,
     loss: moveAnalysis.loss,
@@ -780,7 +778,7 @@ function MoveCell({
         annotation,
       )} ${
         active
-          ? "relative z-10 border-white/95 ring-2 ring-white/95 ring-offset-2 ring-offset-background shadow-[0_0_0_1px_rgba(255,255,255,0.8)]"
+          ? "relative z-10 border-accent ring-2 ring-accent/60 ring-offset-1 ring-offset-background"
           : ""
       }`}
     >
@@ -815,18 +813,20 @@ function EvaluationBar({
   const whiteIsBottom = orientation === "white";
   const topColor = whiteIsBottom ? "Black" : "White";
   const bottomColor = whiteIsBottom ? "White" : "Black";
-  const whiteBarPosition = whiteIsBottom
-    ? { bottom: 0, height: `${whitePct}%` }
-    : { top: 0, height: `${whitePct}%` };
+  const whiteBarPosition = {
+    transform: `scaleY(${whitePct / 100})`,
+    transformOrigin: whiteIsBottom ? "bottom" : "top",
+  };
 
   return (
-    <div className="flex w-12 shrink-0 flex-col items-center gap-2">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        {topColor}
-      </div>
-      <div className="relative min-h-72 flex-1 overflow-hidden rounded-md border border-border/70 bg-zinc-950 shadow-inner">
+    <div
+      className="flex w-9 shrink-0 flex-col items-center gap-1.5"
+      aria-label={formatEvalBarLabel(whiteCp)}
+    >
+      <div className="text-[9px] font-medium text-muted-foreground">{topColor}</div>
+      <div className="relative min-h-0 w-7 flex-1 overflow-hidden rounded-md border border-border bg-[#27352e]">
         <div
-          className="absolute inset-x-0 bg-zinc-100 transition-[height,top,bottom] duration-500 ease-out"
+          className="absolute inset-0 bg-[#f5f5ef] transition-transform duration-200 motion-reduce:transition-none"
           style={whiteBarPosition}
         />
         <div className="absolute inset-x-1/2 top-0 h-full w-px -translate-x-1/2 bg-border/30" />
@@ -834,9 +834,7 @@ function EvaluationBar({
           {analyzing ? "..." : formatEvalBarLabel(whiteCp)}
         </div>
       </div>
-      <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        {bottomColor}
-      </div>
+      <div className="text-[9px] font-medium text-muted-foreground">{bottomColor}</div>
       <div className="h-4 font-mono text-[9px] text-muted-foreground">
         {depth ? `d${depth}` : ""}
       </div>
@@ -848,19 +846,16 @@ function GameReviewPage() {
   const { gameId } = Route.useParams();
   const decodedGameId = decodeURIComponent(gameId);
   const isClient = useIsClient();
-  const { state: sidebarState } = useSidebar();
   const games = useGames();
   const game = games.find((item) => item.id === decodedGameId);
   const moves = useMemo(() => (game ? buildReviewMoves(game) : []), [game]);
   const boardPanelRef = useRef<HTMLDivElement>(null);
   const notationRef = useRef<HTMLDivElement>(null);
-  const zoomScrollIntentRef = useRef(false);
-  const previousEffectiveZoomRef = useRef(86);
   const evaluationCacheRef = useRef(new Map<string, PositionEvaluation>());
   const liveEvaluationCacheRef = useRef(new Map<string, PositionEvaluation>());
   const liveEvaluationEngineRef = useRef<StockfishClient | null>(null);
   const [selectedPly, setSelectedPly] = useState(0);
-  const [boardZoom, setBoardZoom] = useState(86);
+  const [boardZoom, setBoardZoom] = useState(100);
   const [boardOrientation, setBoardOrientation] = useState<Color>(game?.myColor ?? "white");
   const [reviewStrength, setReviewStrength] = useState(10);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -916,27 +911,34 @@ function GameReviewPage() {
   const coachProgressPct = coachReviewState.total
     ? Math.round((coachReviewState.progress / coachReviewState.total) * 100)
     : 0;
-  const summary = summarizeAnalysis(myMoveAnalysis);
-  const sidebarCollapsed = sidebarState === "collapsed";
-  const boardMaxZoom = sidebarCollapsed ? 118 : 108;
+  const summary = useMemo(() => summarizeAnalysis(myMoveAnalysis), [myMoveAnalysis]);
+  const boardMaxZoom = 120;
   const effectiveBoardZoom = Math.min(boardZoom, boardMaxZoom);
-  const boardBaseSize = sidebarCollapsed ? 680 : 620;
+  const boardBaseSize = 640;
   const boardPixelSize = Math.round(boardBaseSize * (effectiveBoardZoom / 100));
-  const boardAreaPixelSize = boardPixelSize + 60;
+  const boardAreaPixelSize = boardPixelSize + 44;
   const displayedPositionIndex = latestVariationMove ? null : selectedPly < 0 ? 0 : selectedPly + 1;
   const displayedPositionEvaluation =
     displayedPositionIndex == null ? null : (positionAnalysis[displayedPositionIndex] ?? null);
-  const playedMoveArrow = displayedMove
-    ? {
-        startSquare: displayedMove.from,
-        endSquare: displayedMove.to,
-        color: annotationColor(selectedAnnotation),
-      }
-    : null;
-  const engineBestMoveArrow = latestVariationMove
-    ? null
-    : bestMoveArrow(fen, displayedPositionEvaluation?.bestMove ?? null);
-  const boardArrows = [playedMoveArrow, engineBestMoveArrow].filter((arrow) => arrow !== null);
+  const boardArrows = useMemo(() => {
+    const played = displayedMove
+      ? {
+          startSquare: displayedMove.from,
+          endSquare: displayedMove.to,
+          color: annotationColor(selectedAnnotation),
+        }
+      : null;
+    const best = latestVariationMove
+      ? null
+      : bestMoveArrow(fen, displayedPositionEvaluation?.bestMove ?? null);
+    return [played, best].filter((arrow) => arrow !== null);
+  }, [
+    displayedMove,
+    selectedAnnotation,
+    latestVariationMove,
+    fen,
+    displayedPositionEvaluation?.bestMove,
+  ]);
   const storedEvalWhite = latestVariationMove
     ? null
     : (selectedAnalysis?.evalAfterWhite ?? displayedPositionEvaluation?.whiteCp ?? null);
@@ -959,12 +961,18 @@ function GameReviewPage() {
   }
 
   useEffect(() => {
-    const active = notationRef.current?.querySelector(`[data-ply="${selectedPly}"]`);
-    active?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const notation = notationRef.current;
+    const active = notation?.querySelector(`[data-ply="${selectedPly}"]`);
+    if (!notation || !active) return;
+    const container = notation.getBoundingClientRect();
+    const move = active.getBoundingClientRect();
+    if (move.top < container.top) notation.scrollTop -= container.top - move.top + 8;
+    else if (move.bottom > container.bottom)
+      notation.scrollTop += move.bottom - container.bottom + 8;
   }, [selectedPly]);
 
   useEffect(() => {
-    if (game) setBoardOrientation(game.myColor);
+    if (game?.myColor) setBoardOrientation(game.myColor);
   }, [decodedGameId, game?.myColor]);
 
   useEffect(() => {
@@ -1085,26 +1093,8 @@ function GameReviewPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [moves.length, variationMoves.length]);
 
-  useEffect(() => {
-    if (!zoomScrollIntentRef.current) {
-      previousEffectiveZoomRef.current = effectiveBoardZoom;
-      return;
-    }
-
-    zoomScrollIntentRef.current = false;
-    const block: ScrollLogicalPosition =
-      effectiveBoardZoom >= previousEffectiveZoomRef.current ? "center" : "nearest";
-    previousEffectiveZoomRef.current = effectiveBoardZoom;
-    const timer = window.setTimeout(() => {
-      boardPanelRef.current?.scrollIntoView({ block, behavior: "smooth" });
-    }, 80);
-
-    return () => window.clearTimeout(timer);
-  }, [effectiveBoardZoom]);
-
   function handleBoardZoomChange(value: number[]) {
-    zoomScrollIntentRef.current = true;
-    setBoardZoom(value[0] ?? 86);
+    setBoardZoom(value[0] ?? 100);
   }
 
   function flipBoard() {
@@ -1142,41 +1132,95 @@ function GameReviewPage() {
     setVariationMoves((current) => current.slice(0, index));
   }
 
-  function playBoardMove(from: string, to: string) {
-    const move = legalBoardMove(fen, from, to);
-    setSelectedSquare(null);
-    if (!move) return false;
+  const playBoardMove = useCallback(
+    (from: string, to: string) => {
+      const move = legalBoardMove(fen, from, to);
+      setSelectedSquare(null);
+      if (!move) return false;
 
-    const nextMove = variationMoves.length === 0 ? nextMainlineMove(moves, selectedPly) : null;
-    if (nextMove && nextMove.uci === move.uci) {
-      setSelectedPly(nextMove.ply);
-      setVariationMoves([]);
+      const nextMove = variationMoves.length === 0 ? nextMainlineMove(moves, selectedPly) : null;
+      if (nextMove && nextMove.uci === move.uci) {
+        setSelectedPly(nextMove.ply);
+        setVariationMoves([]);
+        return true;
+      }
+
+      setVariationMoves((current) => [...current, move]);
       return true;
-    }
+    },
+    [fen, moves, selectedPly, variationMoves.length],
+  );
 
-    setVariationMoves((current) => [...current, move]);
-    return true;
-  }
-
-  function handleSquareClick(square: string, hasPiece: boolean) {
-    if (selectedSquare) {
-      if (selectedSquare === square) {
-        setSelectedSquare(null);
+  const handleSquareClick = useCallback(
+    (square: string, hasPiece: boolean) => {
+      if (selectedSquare) {
+        if (selectedSquare === square) {
+          setSelectedSquare(null);
+          return;
+        }
+        const moved = playBoardMove(selectedSquare, square);
+        if (!moved && hasPiece) setSelectedSquare(square);
         return;
       }
-      const moved = playBoardMove(selectedSquare, square);
-      if (!moved && hasPiece) setSelectedSquare(square);
-      return;
-    }
 
-    if (hasPiece) setSelectedSquare(square);
-  }
+      if (hasPiece) setSelectedSquare(square);
+    },
+    [selectedSquare, playBoardMove],
+  );
 
-  function toggleMarkedSquare(square: string) {
+  const toggleMarkedSquare = useCallback((square: string) => {
     setMarkedSquares((current) =>
       current.includes(square) ? current.filter((item) => item !== square) : [...current, square],
     );
-  }
+  }, []);
+
+  const boardOptions = useMemo<ChessboardOptions>(
+    () => ({
+      id: `game-review-${game?.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+      position: fen,
+      boardOrientation,
+      allowDragging: true,
+      allowDrawingArrows: true,
+      clearArrowsOnClick: false,
+      clearArrowsOnPositionChange: false,
+      arrowOptions: {
+        color: "rgba(40,125,100,0.9)",
+        secondaryColor: "rgba(56,132,172,0.85)",
+        tertiaryColor: "rgba(198,75,71,0.85)",
+        arrowLengthReducerDenominator: 8,
+        sameTargetArrowLengthReducerDenominator: 4,
+        arrowWidthDenominator: 5,
+        activeArrowWidthMultiplier: 0.9,
+        opacity: 0.7,
+        activeOpacity: 0.55,
+        arrowStartOffset: 0,
+      },
+      squareStyles: selectedSquareStyles(
+        displayedMove,
+        selectedAnnotation,
+        selectedSquare,
+        markedSquares,
+      ),
+      arrows: boardArrows,
+      onPieceDrop: ({ sourceSquare, targetSquare }) =>
+        targetSquare ? playBoardMove(sourceSquare, targetSquare) : false,
+      onSquareClick: ({ piece, square }) => handleSquareClick(square, Boolean(piece)),
+      onSquareRightClick: ({ square }) => toggleMarkedSquare(square),
+    }),
+    [
+      game?.id,
+      fen,
+      boardOrientation,
+      displayedMove,
+      selectedAnnotation,
+      selectedSquare,
+      markedSquares,
+      boardArrows,
+      playBoardMove,
+      handleSquareClick,
+      toggleMarkedSquare,
+    ],
+  );
 
   async function analyzeGame() {
     if (!moves.length || analyzeState.status === "running" || coachReviewState.status === "running")
@@ -1667,8 +1711,7 @@ function GameReviewPage() {
         evaluationCacheRef.current.set(cacheKey, positionEvaluation);
         return positionEvaluation;
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : `Coach review skipped ${label}`;
+        const message = error instanceof Error ? error.message : `Coach review skipped ${label}`;
         return emptyPositionEvaluation(fenToEvaluate, message);
       }
     }
@@ -1719,10 +1762,7 @@ function GameReviewPage() {
       );
     } catch (error) {
       console.error("[review] coach review failed", error);
-      flushCoachUpdates(
-        error instanceof Error ? error.message : "Coach review failed",
-        "error",
-      );
+      flushCoachUpdates(error instanceof Error ? error.message : "Coach review failed", "error");
     } finally {
       pendingPositionUpdates = {};
       pendingMoveUpdates = {};
@@ -1754,7 +1794,7 @@ function GameReviewPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[94rem] p-6 transition-[max-width,padding] duration-500 ease-out md:p-10">
+    <div className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
       <PageHeader
         eyebrow="Engine review"
         title={`${game.myColor === "white" ? game.whiteUser : game.blackUser} vs ${game.oppName}`}
@@ -1814,7 +1854,7 @@ function GameReviewPage() {
         }
       />
 
-      <div className="mb-8 grid gap-px overflow-hidden rounded-md border border-border/60 bg-border/60 md:grid-cols-5">
+      <div className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-5">
         {[
           { label: "Result", value: game.result, className: resultClass(game.result) },
           { label: "Color", value: game.myColor },
@@ -1822,7 +1862,7 @@ function GameReviewPage() {
           { label: "Time", value: game.timeControl || "unknown" },
           { label: "Moves", value: String(game.movesCount) },
         ].map((item) => (
-          <div key={item.label} className="bg-card/95 p-4">
+          <div key={item.label} className="bg-card p-4">
             <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               {item.label}
             </div>
@@ -1833,15 +1873,9 @@ function GameReviewPage() {
         ))}
       </div>
 
-      <div
-        className={`grid grid-cols-1 gap-8 transition-[grid-template-columns] duration-500 ease-out ${
-          sidebarCollapsed
-            ? "xl:grid-cols-[minmax(420px,900px)_minmax(420px,1fr)]"
-            : "xl:grid-cols-[minmax(340px,760px)_minmax(420px,1fr)]"
-        }`}
-      >
-        <div className="space-y-5">
-          <Card ref={boardPanelRef} className="border-border/60 bg-card/40 p-4">
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(350px,1fr)]">
+        <div className="min-w-0 space-y-5">
+          <Card ref={boardPanelRef} className="border-border bg-card p-3 sm:p-4">
             <div className="mb-4 flex items-center gap-3 rounded-md border border-border/50 bg-background/40 px-3 py-2">
               <ZoomOut className="h-4 w-4 shrink-0 text-muted-foreground" />
               <Slider
@@ -1869,58 +1903,10 @@ function GameReviewPage() {
                 <RotateCcw className="h-4 w-4" />
               </Button>
             </div>
-            <div
-              className={`transition-[width,max-width,margin] duration-500 ease-out ${
-                sidebarCollapsed ? "xl:mr-auto xl:ml-0" : "mx-auto"
-              }`}
-              style={{ width: `${boardAreaPixelSize}px`, maxWidth: "100%" }}
-            >
-              <div className="flex items-stretch gap-3">
-                <div className="aspect-square min-w-0 flex-1 overflow-hidden rounded-md border border-border/60 bg-muted shadow-elegant">
-                  {isClient ? (
-                    <Chessboard
-                      options={{
-                        id: `game-review-${game.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
-                        position: fen,
-                        boardOrientation,
-                        allowDragging: true,
-                        allowDrawingArrows: true,
-                        clearArrowsOnClick: false,
-                        clearArrowsOnPositionChange: false,
-                        arrowOptions: {
-                          color: "oklch(0.78 0.16 75 / 0.9)",
-                          secondaryColor: "oklch(0.82 0.12 205 / 0.85)",
-                          tertiaryColor: "oklch(0.65 0.21 25 / 0.85)",
-                          arrowLengthReducerDenominator: 8,
-                          sameTargetArrowLengthReducerDenominator: 4,
-                          arrowWidthDenominator: 5,
-                          activeArrowWidthMultiplier: 0.9,
-                          opacity: 0.7,
-                          activeOpacity: 0.55,
-                          arrowStartOffset: 0,
-                        },
-                        showNotation: true,
-                        animationDurationInMs: 160,
-                        darkSquareStyle: { backgroundColor: "oklch(0.45 0.05 70)" },
-                        lightSquareStyle: { backgroundColor: "oklch(0.88 0.04 85)" },
-                        squareStyles: selectedSquareStyles(
-                          displayedMove,
-                          selectedAnnotation,
-                          selectedSquare,
-                          markedSquares,
-                        ),
-                        arrows: boardArrows,
-                        onPieceDrop: ({ sourceSquare, targetSquare }) =>
-                          targetSquare ? playBoardMove(sourceSquare, targetSquare) : false,
-                        onSquareClick: ({ piece, square }) =>
-                          handleSquareClick(square, Boolean(piece)),
-                        onSquareRightClick: ({ square }) => toggleMarkedSquare(square),
-                        boardStyle: { width: "100%", height: "100%" },
-                      }}
-                    />
-                  ) : (
-                    <div className="bg-board h-full w-full" />
-                  )}
+            <div className="mx-auto" style={{ width: `${boardAreaPixelSize}px`, maxWidth: "100%" }}>
+              <div className="flex items-stretch gap-2">
+                <div className="aspect-square min-w-0 flex-1">
+                  <ChessBoard options={boardOptions} />
                 </div>
                 <EvaluationBar
                   whiteCp={displayedEvalWhite}
@@ -1968,7 +1954,7 @@ function GameReviewPage() {
           </Card>
         </div>
 
-        <Card className="self-start border-border/60 bg-card/40">
+        <Card className="min-w-0 self-start border-border bg-card">
           <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
             <div>
               <h2 className="font-display text-xl font-semibold">Annotated game</h2>
@@ -1995,7 +1981,7 @@ function GameReviewPage() {
 
           <div
             ref={notationRef}
-            className="h-[18rem] overflow-y-auto p-3 md:h-[20rem] xl:h-[22rem]"
+            className="h-[20rem] overflow-y-auto overscroll-contain p-3 xl:h-[26rem]"
           >
             <div className="mb-2 grid grid-cols-[2.75rem_1fr_1fr] gap-2 px-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               <span>#</span>

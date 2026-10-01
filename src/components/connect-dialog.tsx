@@ -52,13 +52,13 @@ export function ConnectDialog({
     setBusy(true);
     setProgress({ fetched: 0, parsed: 0, total: null, status: "Starting…" });
     try {
-      await clearGames();
       const { games, errors } = await importGames(platform, u, setProgress);
       if (games.length === 0) {
         toast.error(`No games found for ${u} on ${platform}`);
         setBusy(false);
         return;
       }
+      await clearGames();
       await putGames(games);
       await setConnection({ username: u, platform, linkedAt: Date.now(), lastImport: Date.now() });
       toast.success(`Imported ${games.length} games from ${platform}`, {
@@ -99,6 +99,7 @@ export function ConnectDialog({
             </Label>
             <RadioGroup
               value={platform}
+              disabled={busy}
               onValueChange={(v) => setPlatform(v as Platform)}
               className="grid grid-cols-2 gap-2 mt-2"
             >

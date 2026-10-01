@@ -4,12 +4,12 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyConnect } from "@/components/empty-connect";
-import { useConnection, useGames, useIsClient } from "@/lib/chess/hooks";
+import { useConnection, useGames } from "@/lib/chess/hooks";
 import { buildOpeningTree, serializeTree, type SerializedNode } from "@/lib/chess/opening-tree";
 import type { Color, StoredGame } from "@/lib/chess/types";
 import { BookmarkCheck, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Chessboard } from "react-chessboard";
+import { ChessBoard } from "@/components/chess-board";
 
 export const Route = createFileRoute("/app/openings")({
   head: () => ({ meta: [{ title: "Opening Tree - NeverPay4Chess" }] }),
@@ -138,12 +138,14 @@ function NodeRow({
   const moveLabel = formatTreeMoveLabel(color, depth, node.san);
   return (
     <div>
-      <div
+      <button
+        type="button"
+        aria-expanded={hasChildren ? open : undefined}
         onClick={() => {
           onPick({ nodes: line, index: line.length - 1 });
           if (hasChildren) setOpen(!open);
         }}
-        className={`group grid cursor-pointer grid-cols-[minmax(10rem,1fr)_minmax(6rem,9rem)_3rem_3.5rem] items-center gap-2 rounded-md border px-2 py-1.5 text-sm transition ${
+        className={`group grid w-full min-w-[360px] cursor-pointer grid-cols-[minmax(8rem,1fr)_minmax(4rem,7rem)_3rem_3.5rem] items-center gap-2 rounded-md border px-2 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
           isActive
             ? "border-accent/50 bg-accent/10"
             : isBlackGroup
@@ -192,7 +194,7 @@ function NodeRow({
         <Badge variant="outline" className="font-mono text-[10px]">
           {node.count}
         </Badge>
-      </div>
+      </button>
       {open && hasChildren && (
         <div>
           {node.children.map((c) => (
@@ -266,9 +268,9 @@ function EloCarrierCard({ carrier }: { carrier: EloCarrier | null }) {
   const colorLabel = carrier.color === "white" ? "White" : "Black";
 
   return (
-    <Card className="overflow-hidden border-accent/30 bg-card/40">
+    <Card className="overflow-hidden border-accent/30 bg-card">
       <div className="grid gap-px bg-border/50 md:grid-cols-[1.4fr_1fr]">
-        <div className="bg-card/95 p-5">
+        <div className="bg-card p-5">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Badge className="border-accent/30 bg-accent/15 font-mono text-[10px] uppercase tracking-widest text-accent hover:bg-accent/15">
               {colorLabel} most wins
@@ -301,7 +303,7 @@ function EloCarrierCard({ carrier }: { carrier: EloCarrier | null }) {
             },
             { label: "Games", value: carrier.count.toString() },
           ].map((stat) => (
-            <div key={stat.label} className="bg-card/95 p-4">
+            <div key={stat.label} className="bg-card p-4">
               <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                 {stat.label}
               </div>
@@ -331,31 +333,27 @@ function PositionBoard({
   onBack: () => void;
   onForward: () => void;
 }) {
-  const isClient = useIsClient();
-
   return (
-    <Card className="border-border/60 bg-card/40 p-3">
-      <div className="mx-auto w-full max-w-[420px]">
-        <div className="aspect-square overflow-hidden rounded-md border border-border/60 bg-muted shadow-elegant">
-          {isClient ? (
-            <Chessboard
-              options={{
-                id: "opening-tree-board",
-                position: node.fen,
-                boardOrientation: color,
-                allowDragging: false,
-                allowDrawingArrows: true,
-                showNotation: true,
-                animationDurationInMs: 160,
-                darkSquareStyle: { backgroundColor: "oklch(0.45 0.05 70)" },
-                lightSquareStyle: { backgroundColor: "oklch(0.88 0.04 85)" },
-                boardStyle: { width: "100%", height: "100%" },
-              }}
-            />
-          ) : (
-            <div className="bg-board h-full w-full" />
-          )}
-        </div>
+    <Card className="border-border bg-card p-4">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Position explorer</h3>
+        <Badge variant="outline" className="capitalize">
+          Playing as {color}
+        </Badge>
+      </div>
+      <div className="mx-auto w-full">
+        <ChessBoard
+          options={{
+            id: "opening-tree-board",
+            position: node.fen,
+            boardOrientation: color,
+            allowDragging: false,
+            allowDrawingArrows: true,
+            showNotation: true,
+            animationDurationInMs: 160,
+            boardStyle: { width: "100%", height: "100%" },
+          }}
+        />
       </div>
       <div className="mt-3 flex items-center gap-2">
         <Button
@@ -373,7 +371,8 @@ function PositionBoard({
             Position after <span className="text-accent">{label}</span>
           </div>
           <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
-            {node.fen}
+            {node.fen.split(" ")[1] === "b" ? "Black" : "White"} to move · {node.count} games in
+            this position
           </div>
         </div>
         <Button
@@ -449,11 +448,11 @@ function OpeningsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl p-6 md:p-10">
+    <div className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
       <PageHeader
         eyebrow="Personal opening tree"
-        title="Your repertoire, by the numbers"
-        description={`Built from your imported ${conn.platform} games. White and black trees are generated separately from the games you played on each side.`}
+        title="Explore your openings"
+        description={`Follow your most-played lines and find your next improvement. Based on your ${conn.platform} games.`}
         actions={
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline" className="font-mono text-[10px]">
@@ -471,8 +470,8 @@ function OpeningsPage() {
         <EloCarrierCard carrier={eloCarriers.black} />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        <Card className="border-border/60 bg-card/40 p-3 lg:col-span-3">
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(380px,0.9fr)]">
+        <Card className="min-w-0 border-border bg-card p-3">
           <div className="mb-1 flex items-center justify-between px-2 py-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
             <span>Opening trees</span>
             <span>W / D / L - Games</span>
@@ -495,7 +494,7 @@ function OpeningsPage() {
           </div>
         </Card>
 
-        <div className="space-y-4 lg:col-span-2">
+        <div className="order-first min-w-0 space-y-4 xl:order-last">
           <PositionBoard
             node={selected}
             color={selectedColor}
@@ -505,7 +504,7 @@ function OpeningsPage() {
             onBack={() => moveSelection(-1)}
             onForward={() => moveSelection(1)}
           />
-          <Card className="border-border/60 bg-card/40 p-5">
+          <Card className="border-border/60 bg-card p-5">
             <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               Selected line
             </div>
@@ -543,7 +542,7 @@ function OpeningsPage() {
             </div>
             <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
               <BookmarkCheck className="h-3.5 w-3.5 text-accent" />
-              Save-to-repertoire actions can attach to this selected FEN next.
+              Select a move in the tree to explore your results in that position.
             </div>
           </Card>
         </div>

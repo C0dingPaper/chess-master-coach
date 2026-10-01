@@ -1,4 +1,5 @@
 import { Chess } from "chess.js";
+import { pgnToSanMoves } from "./pgn";
 import type { StoredGame } from "./types";
 
 export interface TreeNode {
@@ -12,11 +13,17 @@ export interface TreeNode {
   children: Map<string, TreeNode>;
 }
 
+const treeCache = new WeakMap<StoredGame[], Map<string, TreeNode>>();
+
 export function buildOpeningTree(
   games: StoredGame[],
   color: "white" | "black",
   maxPly = 12,
 ): TreeNode {
+  const cacheKey = `${color}:${maxPly}`;
+  const cached = treeCache.get(games)?.get(cacheKey);
+  if (cached) return cached;
+
   const root: TreeNode = {
     san: "",
     fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -29,29 +36,24 @@ export function buildOpeningTree(
 
   for (const g of games) {
     if (g.myColor !== color) continue;
-    let chess: Chess;
-    try {
-      chess = new Chess();
-      chess.loadPgn(g.pgn, { strict: false });
-    } catch {
-      continue;
-    }
-    const history = chess.history();
+    const history = pgnToSanMoves(g.pgn);
     if (history.length === 0) continue;
 
     let node = root;
     incr(node, g.result);
-    const c = new Chess();
     const limit = Math.min(maxPly, history.length);
     for (let i = 0; i < limit; i++) {
       const san = history[i];
-      try {
-        c.move(san);
-      } catch {
-        break;
-      }
       let child = node.children.get(san);
       if (!child) {
+        // Existing branches already contain the validated position. Only
+        // calculate a FEN when a previously unseen branch is encountered.
+        const c = new Chess(node.fen);
+        try {
+          c.move(san);
+        } catch {
+          break;
+        }
         child = { san, fen: c.fen(), count: 0, wins: 0, draws: 0, losses: 0, children: new Map() };
         node.children.set(san, child);
       }
@@ -59,6 +61,9 @@ export function buildOpeningTree(
       node = child;
     }
   }
+  const trees = treeCache.get(games) ?? new Map<string, TreeNode>();
+  trees.set(cacheKey, root);
+  treeCache.set(games, trees);
   return root;
 }
 
@@ -79,8 +84,12 @@ export interface SerializedNode {
   children: SerializedNode[];
 }
 
+const serializedCache = new WeakMap<TreeNode, SerializedNode>();
+
 export function serializeTree(node: TreeNode): SerializedNode {
-  return {
+  const cached = serializedCache.get(node);
+  if (cached) return cached;
+  const serialized: SerializedNode = {
     san: node.san,
     fen: node.fen,
     count: node.count,
@@ -91,4 +100,6 @@ export function serializeTree(node: TreeNode): SerializedNode {
       .sort((a, b) => b.count - a.count)
       .map(serializeTree),
   };
+  serializedCache.set(node, serialized);
+  return serialized;
 }

@@ -14,13 +14,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyConnect } from "@/components/empty-connect";
-import { useConnection, useGames, useIsClient, useRepertoire } from "@/lib/chess/hooks";
+import { useConnection, useGames, useRepertoire } from "@/lib/chess/hooks";
 import { putRepertoire } from "@/lib/chess/storage";
 import type { Color, RepertoireLine, StoredGame } from "@/lib/chess/types";
 import { ArrowRight, BookOpen, Plus, Sparkles } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { Chess } from "chess.js";
-import { Chessboard } from "react-chessboard";
+import { ChessBoard, ChessPositionPreview } from "@/components/chess-board";
 
 export const Route = createFileRoute("/app/repertoire")({
   head: () => ({ meta: [{ title: "Repertoire - NeverPay4Chess" }] }),
@@ -144,7 +144,6 @@ function positionFromMoves(moves: string) {
 }
 
 function OpeningTile({ opening, onClick }: { opening: OpeningCard; onClick: () => void }) {
-  const isClient = useIsClient();
   const learnedLines = Math.round((opening.progress / 100) * opening.totalLines);
   const isAccountOpening = opening.gamesPlayed != null && opening.colorGames != null;
 
@@ -152,34 +151,21 @@ function OpeningTile({ opening, onClick }: { opening: OpeningCard; onClick: () =
     <button
       type="button"
       onClick={onClick}
-      className="group relative grid min-h-[248px] overflow-hidden rounded-xl border border-border/70 bg-card/50 p-3 text-left shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-accent/45 hover:bg-card/70 hover:shadow-elegant focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:grid-cols-[180px_minmax(0,1fr)] sm:gap-4"
+      className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-colors hover:border-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       aria-label={`Open ${opening.name}`}
     >
-      <div className="aspect-square w-full overflow-hidden rounded-lg border border-border/60 bg-board shadow-sm sm:w-[180px]">
-        {isClient ? (
-          <Chessboard
-            options={{
-              id: `repertoire-${opening.id}`,
-              position: opening.fen,
-              boardOrientation: opening.color,
-              allowDragging: false,
-              allowDrawingArrows: false,
-              showNotation: false,
-              animationDurationInMs: 0,
-              darkSquareStyle: { backgroundColor: "oklch(0.45 0.05 70)" },
-              lightSquareStyle: { backgroundColor: "oklch(0.88 0.04 85)" },
-              boardStyle: { width: "100%", height: "100%" },
-            }}
-          />
-        ) : (
-          <div className="bg-board h-full w-full" />
-        )}
+      <div className="mx-auto aspect-square w-full max-w-[280px] overflow-hidden rounded-lg border border-border/60">
+        <ChessPositionPreview
+          position={opening.fen}
+          boardOrientation={opening.color}
+          label={`${opening.name} opening position`}
+        />
       </div>
 
-      <div className="flex min-w-0 flex-col px-1 py-2 sm:px-0">
+      <div className="flex min-w-0 flex-1 flex-col px-1 pb-1 pt-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="font-display text-2xl font-semibold leading-tight transition-colors group-hover:text-accent">
+            <h2 className="font-display text-lg font-semibold leading-tight transition-colors group-hover:text-accent">
               {opening.name}
             </h2>
             <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -221,7 +207,7 @@ function OpeningTile({ opening, onClick }: { opening: OpeningCard; onClick: () =
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full min-w-1 rounded-full bg-accent transition-all duration-500"
+              className="h-full min-w-1 rounded-full bg-accent"
               style={{ width: `${Math.max(opening.progress, 1.5)}%` }}
             />
           </div>
@@ -278,11 +264,11 @@ function AddLineDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-display text-2xl">Add your own line</DialogTitle>
           <DialogDescription>
-            Save a personal opening line now. Training and spaced repetition will come later.
+            Keep your favorite moves and a note together in your repertoire.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -390,7 +376,7 @@ function PersonalOpeningSection({
       </div>
 
       {openings.length > 0 ? (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {openings.map((opening) => (
             <OpeningTile key={opening.id} opening={opening} onClick={() => onSelect(opening)} />
           ))}
@@ -455,11 +441,11 @@ function RepertoirePage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl p-6 md:p-10">
+    <div className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
       <PageHeader
         eyebrow="Opening repertoire"
-        title="Your personal opening preferences"
-        description={`These suggestions come only from ${conn.username}'s ${conn.platform} games. They reflect what you choose to play, not global opening popularity.`}
+        title="Your opening repertoire"
+        description={`A library of the lines you play, personalized from ${conn.username}'s games.`}
         actions={
           <Button
             onClick={() => setAddOpen(true)}
@@ -491,7 +477,7 @@ function RepertoirePage() {
               Your lines
             </h2>
           </div>
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {customOpenings.map((opening) => (
               <OpeningTile
                 key={opening.id}
@@ -516,7 +502,7 @@ function RepertoirePage() {
       <AddLineDialog open={addOpen} onOpenChange={setAddOpen} />
 
       <Dialog open={selected != null} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <div className="mb-2 flex items-center gap-2">
               <Badge variant="outline" className="font-mono text-[10px]">
@@ -529,10 +515,20 @@ function RepertoirePage() {
             <DialogTitle className="font-display text-3xl">{selected?.name}</DialogTitle>
             <DialogDescription className="font-mono">{selected?.moves}</DialogDescription>
           </DialogHeader>
-          <div className="rounded-lg border border-dashed border-border/70 bg-muted/25 p-5 text-sm text-muted-foreground">
+          {selected && (
+            <ChessBoard
+              options={{
+                id: "repertoire-detail",
+                position: selected.fen,
+                boardOrientation: selected.color,
+                allowDrawingArrows: true,
+              }}
+            />
+          )}
+          <div className="rounded-lg border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
             {selected?.gamesPlayed != null
               ? selected.description
-              : "Opening details, line building, and spaced-repetition training will be added in the next stage. For now, this card establishes the opening in your repertoire library."}
+              : "Your saved opening position. Use the moves above to revisit the line and draw arrows on the board to explore ideas."}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelected(null)}>

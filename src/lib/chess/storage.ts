@@ -27,6 +27,10 @@ function getDb() {
           db.createObjectStore("kv");
         }
       },
+    }).catch((error) => {
+      // Allow later reads to retry a temporarily unavailable database.
+      dbPromise = null;
+      throw error;
     });
   }
   return dbPromise;
@@ -46,17 +50,18 @@ export async function setConnection(c: Connection | null) {
   if (!db) return;
   if (c) await db.put("kv", c, CONN_KEY);
   else await db.delete("kv", CONN_KEY);
-  notify();
+  notify("connection");
 }
 
 // ---------- Games ----------
 export async function putGames(games: StoredGame[]) {
+  if (games.length === 0) return;
   const db = await getDb();
   if (!db) return;
   const tx = db.transaction("games", "readwrite");
-  for (const g of games) await tx.store.put(g);
-  await tx.done;
-  notify();
+  // Queue all writes together instead of serializing IndexedDB round trips.
+  await Promise.all([...games.map((game) => tx.store.put(game)), tx.done]);
+  notify("games");
 }
 
 export async function getAllGames(): Promise<StoredGame[]> {
@@ -76,7 +81,7 @@ export async function clearGames() {
   const db = await getDb();
   if (!db) return;
   await db.clear("games");
-  notify();
+  notify("games");
 }
 
 // ---------- Repertoire ----------
@@ -91,14 +96,14 @@ export async function putRepertoire(r: RepertoireLine) {
   const db = await getDb();
   if (!db) return;
   await db.put("repertoire", r);
-  notify();
+  notify("repertoire");
 }
 
 export async function deleteRepertoire(id: string) {
   const db = await getDb();
   if (!db) return;
   await db.delete("repertoire", id);
-  notify();
+  notify("repertoire");
 }
 
 // ---------- Pinned positions / SRS ----------
@@ -112,25 +117,28 @@ export async function putPinned(p: PinnedPosition) {
   const db = await getDb();
   if (!db) return;
   await db.put("pinned", p);
-  notify();
+  notify("pinned");
 }
 
 export async function deletePinned(id: string) {
   const db = await getDb();
   if (!db) return;
   await db.delete("pinned", id);
-  notify();
+  notify("pinned");
 }
 
 // ---------- Reactivity ----------
-type Listener = () => void;
+export type ChessStore = "connection" | "games" | "repertoire" | "pinned";
+type Listener = (store: ChessStore) => void;
 const listeners = new Set<Listener>();
 
 export function subscribe(fn: Listener) {
   listeners.add(fn);
-  return () => listeners.delete(fn);
+  return () => {
+    listeners.delete(fn);
+  };
 }
 
-function notify() {
-  for (const l of listeners) l();
+function notify(store: ChessStore) {
+  for (const listener of listeners) listener(store);
 }

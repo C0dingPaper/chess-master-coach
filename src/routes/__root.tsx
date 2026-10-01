@@ -73,14 +73,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "NeverPay4Chess — Your personal chess workspace" },
+      { name: "description", content: "Review your games, explore openings, and train your repertoire. Your personal chess improvement workspace, free forever." },
+      { property: "og:title", content: "NeverPay4Chess — Your personal chess workspace" },
+      { property: "og:description", content: "Your games, your openings, your progress. Everything you need to improve, in one place." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
       {
@@ -115,7 +113,7 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <Outlet />
-      <Toaster position="bottom-right" theme="dark" toastOptions={{ className: "font-sans" }} />
+      <Toaster position="bottom-right" theme="light" toastOptions={{ className: "font-sans" }} />
     </QueryClientProvider>
   );
 }

@@ -11,20 +11,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmptyConnect } from "@/components/empty-connect";
-import { useConnection, useGames, useIsClient } from "@/lib/chess/hooks";
+import { useConnection, useGames } from "@/lib/chess/hooks";
 import { detectIssues, type DetectedIssue } from "@/lib/chess/stats";
 import type { Color } from "@/lib/chess/types";
 import { Chess, DEFAULT_POSITION, type Move as ChessMove } from "chess.js";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
-  ChevronLeft,
-  ChevronRight,
-  MessageCircle,
-} from "lucide-react";
-import { useMemo, useState } from "react";
-import { Chessboard } from "react-chessboard";
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
+import { memo, useMemo, useState } from "react";
+import { ChessBoard, ChessPositionPreview } from "@/components/chess-board";
 
 export const Route = createFileRoute("/app/mistakes")({
   head: () => ({ meta: [{ title: "Mistakes - NeverPay4Chess" }] }),
@@ -65,9 +58,8 @@ function annotationClass(kind: AnnotationKind, active = false) {
   const base = active ? "ring-1 ring-offset-1 ring-offset-background" : "";
   if (kind === "blunder") return `${base} border-loss/50 bg-loss/20 text-loss ring-loss/70`;
   if (kind === "inaccuracy") return `${base} border-draw/50 bg-draw/20 text-draw ring-draw/70`;
-  if (kind === "brilliancy")
-    return `${base} border-sky-400/50 bg-sky-500/20 text-sky-200 ring-sky-400/70`;
-  return `${base} border-cyan-300/40 bg-cyan-400/10 text-cyan-100 ring-cyan-300/70`;
+  if (kind === "brilliancy") return `${base} border-sky-200 bg-sky-50 text-sky-700 ring-sky-400/70`;
+  return `${base} border-emerald-200 bg-emerald-50 text-emerald-800 ring-emerald-400/70`;
 }
 
 function chooseIssuePly(issue: DetectedIssue, moves: ChessMove[]) {
@@ -125,7 +117,6 @@ function GameReviewDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const isClient = useIsClient();
   const moves = useMemo(() => buildReviewMoves(issue), [issue]);
   const issuePly = useMemo(() => {
     const critical = moves.find((move) => move.annotation === "blunder");
@@ -147,7 +138,7 @@ function GameReviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-6xl overflow-hidden p-0">
+      <DialogContent className="max-h-[92vh] overflow-y-auto p-0 sm:max-w-6xl">
         <DialogHeader className="border-b border-border px-5 py-4">
           <DialogTitle className="font-display text-2xl">
             {issue.game.opening} vs {issue.game.oppName}
@@ -158,29 +149,21 @@ function GameReviewDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid max-h-[calc(92vh-88px)] gap-0 overflow-hidden lg:grid-cols-[minmax(320px,520px)_1fr]">
+        <div className="grid gap-0 lg:grid-cols-[minmax(0,1.2fr)_minmax(300px,1fr)]">
           <div className="border-b border-border p-5 lg:border-b-0 lg:border-r">
-            <div className="mx-auto max-w-[520px]">
-              <div className="aspect-square overflow-hidden rounded-md border border-border/60 bg-muted shadow-elegant">
-                {isClient ? (
-                  <Chessboard
-                    options={{
-                      id: `mistake-review-${issue.game.id}`,
-                      position: fen,
-                      boardOrientation: issue.game.myColor,
-                      allowDragging: false,
-                      allowDrawingArrows: true,
-                      showNotation: true,
-                      animationDurationInMs: 160,
-                      darkSquareStyle: { backgroundColor: "oklch(0.45 0.05 70)" },
-                      lightSquareStyle: { backgroundColor: "oklch(0.88 0.04 85)" },
-                      boardStyle: { width: "100%", height: "100%" },
-                    }}
-                  />
-                ) : (
-                  <div className="bg-board h-full w-full" />
-                )}
-              </div>
+            <div className="mx-auto w-full">
+              <ChessBoard
+                options={{
+                  id: `mistake-review-${issue.game.id}`,
+                  position: fen,
+                  boardOrientation: issue.game.myColor,
+                  allowDragging: false,
+                  allowDrawingArrows: true,
+                  showNotation: true,
+                  animationDurationInMs: 160,
+                  boardStyle: { width: "100%", height: "100%" },
+                }}
+              />
             </div>
 
             <div className="mt-4 flex items-center gap-2">
@@ -227,7 +210,7 @@ function GameReviewDialog({
             </div>
           </div>
 
-          <div className="min-h-0 overflow-auto p-5">
+          <div className="max-h-[65vh] min-h-0 overflow-auto p-5">
             <div className="mb-3 rounded-md border border-border/40 bg-muted/30 p-3 text-sm">
               <span className="text-muted-foreground">Coach: </span>
               {issue.reason}
@@ -269,33 +252,49 @@ function GameReviewDialog({
   );
 }
 
+const IssuePreview = memo(function IssuePreview({ issue }: { issue: DetectedIssue }) {
+  const fen = useMemo(() => {
+    const moves = buildReviewMoves(issue);
+    return (
+      moves.find((move) => move.annotation === "blunder" || move.annotation === "inaccuracy")
+        ?.before ?? DEFAULT_POSITION
+    );
+  }, [issue]);
+  return (
+    <ChessPositionPreview
+      position={fen}
+      boardOrientation={issue.game.myColor}
+      label={`Position from your game against ${issue.game.oppName}`}
+    />
+  );
+});
+
 function MistakesPage() {
   const conn = useConnection();
   const games = useGames();
   const [reviewIssue, setReviewIssue] = useState<DetectedIssue | null>(null);
+  const issues = useMemo(() => detectIssues(games), [games]);
 
   if (!conn || games.length === 0) {
     return (
       <div className="mx-auto max-w-5xl p-6 md:p-10">
         <EmptyConnect
           title="Import games to detect mistakes"
-          description="The current mistake queue uses practical heuristics until engine analysis is added: short losses, quick mates, and low-accuracy games."
+          description="Find games worth a closer look, replay key moments, and discover what you can do differently."
         />
       </div>
     );
   }
 
-  const issues = detectIssues(games);
-
   return (
-    <div className="mx-auto max-w-7xl p-6 md:p-10">
+    <div className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
       <PageHeader
         eyebrow="Learn from your losses"
-        title="Mistakes & blunders"
-        description="A first-pass review queue built from your imported games. Engine-level move explanations can build on this later."
+        title="Every game is a lesson"
+        description="Games selected for review from results, game length, and accuracy. Replay a game to find the turning point."
       />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
           { l: "Blunders", v: countType(issues, "Blunder"), c: "text-loss" },
           { l: "Mistakes", v: countType(issues, "Mistake"), c: "text-accent" },
@@ -306,7 +305,7 @@ function MistakesPage() {
             c: "text-foreground",
           },
         ].map((s) => (
-          <Card key={s.l} className="border-border/60 bg-card/40 p-4">
+          <Card key={s.l} className="border-border/60 bg-card p-4">
             <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               {s.l}
             </div>
@@ -316,7 +315,7 @@ function MistakesPage() {
       </div>
 
       {issues.length === 0 ? (
-        <Card className="border-border/60 bg-card/40 p-10 text-center">
+        <Card className="border-border/60 bg-card p-10 text-center">
           <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-md bg-win/10 text-win">
             <MessageCircle className="h-5 w-5" />
           </div>
@@ -331,11 +330,11 @@ function MistakesPage() {
           {issues.map((issue) => (
             <Card
               key={issue.game.id}
-              className="border-border/60 bg-card/40 p-5 transition hover:border-accent/30"
+              className="border-border bg-card p-4 transition-colors hover:border-accent/30 sm:p-5"
             >
-              <div className="flex items-start gap-4">
-                <div className="bg-board grain relative grid aspect-square w-24 shrink-0 place-items-center overflow-hidden rounded-md shadow-elegant md:w-32">
-                  <AlertTriangle className="h-6 w-6 text-loss/70" />
+              <div className="flex flex-col items-start gap-5 sm:flex-row">
+                <div className="aspect-square w-full max-w-[200px] shrink-0 overflow-hidden rounded-lg border border-border sm:w-36 lg:w-44">
+                  <IssuePreview issue={issue} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -358,7 +357,7 @@ function MistakesPage() {
                       first felt unstable. That position should become a training card.
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center gap-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Button variant="outline" size="sm" onClick={() => setReviewIssue(issue)}>
                       <ArrowLeft className="mr-1 h-3.5 w-3.5" />
                       Replay game

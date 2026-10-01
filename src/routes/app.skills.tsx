@@ -1,11 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { EmptyConnect } from "@/components/empty-connect";
 import { useConnection, useGames } from "@/lib/chess/hooks";
 import { computeSkills, ratingTimeline } from "@/lib/chess/stats";
-import { Target, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Info, Target, TrendingUp } from "lucide-react";
 
 export const Route = createFileRoute("/app/skills")({
   head: () => ({ meta: [{ title: "Skills - NeverPay4Chess" }] }),
@@ -13,221 +15,181 @@ export const Route = createFileRoute("/app/skills")({
 });
 
 type Skill = { name: string; value: number; delta: number };
+const skillLabel = (name: string) => (name === "Time Mgmt" ? "Time management" : name);
 
 function RadarChart({ skills }: { skills: Skill[] }) {
-  const cx = 150;
-  const cy = 150;
-  const r = 110;
+  const cx = 200;
+  const cy = 162;
+  const radius = 108;
   const n = skills.length || 1;
-  const points = skills.map((s, i) => {
-    const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
-    const dist = (s.value / 100) * r;
-    return [cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist];
-  });
-  const labels = skills.map((s, i) => {
-    const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
-    return [cx + Math.cos(angle) * (r + 22), cy + Math.sin(angle) * (r + 22), s.name];
-  });
-  const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${p[0]},${p[1]}`).join(" ") + " Z";
+  const coordinate = (index: number, distance: number) => {
+    const angle = (Math.PI * 2 * index) / n - Math.PI / 2;
+    return { x: cx + Math.cos(angle) * distance, y: cy + Math.sin(angle) * distance };
+  };
+  const points = skills.map((skill, index) => coordinate(index, (skill.value / 100) * radius));
   return (
-    <svg viewBox="0 0 300 300" className="mx-auto w-full max-w-md">
-      {[0.25, 0.5, 0.75, 1].map((f) => (
+    <svg
+      viewBox="0 0 400 325"
+      role="img"
+      aria-label={`Skill estimates: ${skills.map((skill) => `${skillLabel(skill.name)} ${skill.value} out of 100`).join(", ")}`}
+      className="mx-auto w-full max-w-[400px]"
+    >
+      {[0.25, 0.5, 0.75, 1].map((fraction) => (
         <polygon
-          key={f}
+          key={fraction}
           points={skills
-            .map((_, i) => {
-              const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
-              return `${cx + Math.cos(angle) * r * f},${cy + Math.sin(angle) * r * f}`;
+            .map((_, index) => {
+              const point = coordinate(index, radius * fraction);
+              return `${point.x},${point.y}`;
             })
             .join(" ")}
-          fill="none"
+          fill={fraction === 1 ? "var(--background)" : "none"}
+          fillOpacity={fraction === 1 ? 0.35 : 1}
           stroke="var(--border)"
           strokeWidth="1"
         />
       ))}
-      {skills.map((_, i) => {
-        const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
+      {skills.map((_, index) => {
+        const point = coordinate(index, radius);
         return (
-          <line
-            key={i}
-            x1={cx}
-            y1={cy}
-            x2={cx + Math.cos(angle) * r}
-            y2={cy + Math.sin(angle) * r}
-            stroke="var(--border)"
-            strokeWidth="1"
-          />
+          <line key={index} x1={cx} y1={cy} x2={point.x} y2={point.y} stroke="var(--border)" />
         );
       })}
-      <path key={`radar-fill-${path}`} d={path} fill="var(--gold)" fillOpacity="0.2" opacity="0">
-        <animate attributeName="opacity" from="0" to="1" dur="520ms" fill="freeze" />
-      </path>
-      <path
-        key={`radar-line-${path}`}
-        d={path}
-        fill="none"
-        stroke="var(--gold)"
-        strokeLinecap="round"
+      <polygon
+        points={points.map((point) => `${point.x},${point.y}`).join(" ")}
+        fill="var(--accent)"
+        fillOpacity="0.12"
+        stroke="var(--accent)"
         strokeLinejoin="round"
         strokeWidth="2"
-        pathLength={1}
-        strokeDasharray="1"
-        strokeDashoffset="1"
-      >
-        <animate
-          attributeName="stroke-dashoffset"
-          from="1"
-          to="0"
-          dur="780ms"
-          fill="freeze"
-          calcMode="spline"
-          keyTimes="0;1"
-          keySplines="0.2 0.8 0.2 1"
+      />
+      {points.map((point, index) => (
+        <circle
+          key={skills[index].name}
+          cx={point.x}
+          cy={point.y}
+          r="4"
+          fill="var(--accent)"
+          stroke="white"
+          strokeWidth="2"
         />
-      </path>
-      {points.map((p, i) => (
-        <circle key={i} cx={p[0]} cy={p[1]} r="0" fill="var(--gold)" opacity="0">
-          <animate
-            attributeName="r"
-            from="0"
-            to="3.5"
-            dur="240ms"
-            begin={`${220 + i * 55}ms`}
-            fill="freeze"
-          />
-          <animate
-            attributeName="opacity"
-            from="0"
-            to="1"
-            dur="180ms"
-            begin={`${220 + i * 55}ms`}
-            fill="freeze"
-          />
-        </circle>
       ))}
-      {labels.map(([x, y, name], i) => (
-        <text
-          key={i}
-          x={x as number}
-          y={y as number}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fontSize="11"
-          fill="currentColor"
-          className="font-mono"
-        >
-          {name as string}
-        </text>
-      ))}
+      {skills.map((skill, index) => {
+        const point = coordinate(index, radius + 31);
+        return (
+          <text
+            key={skill.name}
+            x={point.x}
+            y={point.y}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="11"
+            fontWeight="500"
+            fill="var(--muted-foreground)"
+          >
+            {skillLabel(skill.name)}
+          </text>
+        );
+      })}
     </svg>
   );
 }
 
 function RatingChart({ data }: { data: { date: string; rating: number }[] }) {
-  const ratingData =
-    data.length >= 2
-      ? data
-      : [
-          { date: "Now", rating: data[0]?.rating ?? 0 },
-          { date: "Now", rating: data[0]?.rating ?? 0 },
-        ];
-  const w = 600;
-  const h = 180;
-  const pad = 30;
-  const max = Math.max(...ratingData.map((d) => d.rating)) + 20;
-  const min = Math.min(...ratingData.map((d) => d.rating)) - 20;
+  if (!data.length)
+    return (
+      <div className="flex min-h-60 items-center justify-center rounded-lg bg-background text-sm text-muted-foreground">
+        No rating data in your imported games yet.
+      </div>
+    );
+  const width = 640;
+  const height = 250;
+  const left = 48;
+  const right = width - 28;
+  const top = 30;
+  const bottom = height - 38;
+  const highest = Math.max(...data.map((point) => point.rating));
+  const lowest = Math.min(...data.map((point) => point.rating));
+  const padding = Math.max(20, Math.ceil((highest - lowest) * 0.2));
+  const min = Math.max(0, Math.floor((lowest - padding) / 20) * 20);
+  const max = Math.ceil((highest + padding) / 20) * 20;
   const range = max - min || 1;
-  const pts = ratingData.map((d, i) => {
-    const x = pad + (i / (ratingData.length - 1)) * (w - pad * 2);
-    const y = h - pad - ((d.rating - min) / range) * (h - pad * 2);
-    return { x, y, ...d };
-  });
-  const path = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+  const points = data.map((point, index) => ({
+    ...point,
+    x: data.length === 1 ? (left + right) / 2 : left + (index / (data.length - 1)) * (right - left),
+    y: bottom - ((point.rating - min) / range) * (bottom - top),
+  }));
+  const path = points
+    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
+    .join(" ");
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
-      <defs>
-        <linearGradient id="ratingfill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.4" />
-          <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={`Monthly average rating: ${data.map((point) => `${point.date} ${point.rating}`).join(", ")}`}
+      className="w-full"
+    >
+      {[0, 1, 2, 3].map((index) => {
+        const y = top + (index / 3) * (bottom - top);
+        return (
+          <g key={index}>
+            <line x1={left} y1={y} x2={right} y2={y} stroke="var(--border)" strokeDasharray="3 4" />
+            <text
+              x={left - 10}
+              y={y}
+              textAnchor="end"
+              dominantBaseline="middle"
+              fontSize="11"
+              fill="var(--muted-foreground)"
+            >
+              {Math.round(max - (index / 3) * range)}
+            </text>
+          </g>
+        );
+      })}
+      {points.length > 1 && (
+        <path
+          d={`${path} L${points[points.length - 1].x},${bottom} L${points[0].x},${bottom} Z`}
+          fill="var(--accent)"
+          fillOpacity="0.06"
+        />
+      )}
       <path
-        key={`rating-fill-${path}`}
-        d={`${path} L${pts[pts.length - 1].x},${h - pad} L${pts[0].x},${h - pad} Z`}
-        fill="url(#ratingfill)"
-        opacity="0"
-      >
-        <animate attributeName="opacity" from="0" to="1" dur="620ms" begin="160ms" fill="freeze" />
-      </path>
-      <path
-        key={`rating-line-${path}`}
         d={path}
         fill="none"
-        stroke="var(--gold)"
+        stroke="var(--accent)"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth="2.5"
-        pathLength={1}
-        strokeDasharray="1"
-        strokeDashoffset="1"
-      >
-        <animate
-          attributeName="stroke-dashoffset"
-          from="1"
-          to="0"
-          dur="900ms"
-          fill="freeze"
-          calcMode="spline"
-          keyTimes="0;1"
-          keySplines="0.2 0.8 0.2 1"
-        />
-      </path>
-      {pts.map((p, i) => (
-        <g key={`${p.date}-${i}`} opacity="0">
-          <animate
-            attributeName="opacity"
-            from="0"
-            to="1"
-            dur="220ms"
-            begin={`${260 + i * 65}ms`}
-            fill="freeze"
-          />
+      />
+      {points.map((point, index) => (
+        <g key={`${point.date}-${index}`}>
           <circle
-            cx={p.x}
-            cy={p.y}
-            r="0"
-            fill="var(--background)"
-            stroke="var(--gold)"
+            cx={point.x}
+            cy={point.y}
+            r="4"
+            fill="white"
+            stroke="var(--accent)"
             strokeWidth="2"
-          >
-            <animate
-              attributeName="r"
-              from="0"
-              to="4"
-              dur="220ms"
-              begin={`${260 + i * 65}ms`}
-              fill="freeze"
-            />
-          </circle>
+          />
           <text
-            x={p.x}
-            y={h - 8}
+            x={point.x}
+            y={height - 12}
             textAnchor="middle"
             fontSize="11"
-            fill="currentColor"
-            className="font-mono opacity-60"
+            fill="var(--muted-foreground)"
           >
-            {p.date}
+            {point.date}
           </text>
           <text
-            x={p.x}
-            y={p.y - 12}
+            x={point.x}
+            y={point.y - 13}
             textAnchor="middle"
             fontSize="11"
-            fill="currentColor"
-            className="font-mono"
+            fontWeight="600"
+            fill="var(--foreground)"
           >
-            {p.rating || "N/A"}
+            {point.rating}
           </text>
         </g>
       ))}
@@ -238,102 +200,181 @@ function RatingChart({ data }: { data: { date: string; rating: number }[] }) {
 function SkillsPage() {
   const conn = useConnection();
   const games = useGames();
+  const skills = useMemo(() => computeSkills(games), [games]);
+  const timeline = useMemo(() => ratingTimeline(games), [games]);
+  const sorted = useMemo(() => [...skills].sort((a, b) => a.value - b.value), [skills]);
+  const weakest = sorted.slice(0, 2);
+  const strongest = sorted.slice(-2).reverse();
+  const latestRating = timeline[timeline.length - 1]?.rating;
+  const ratingChange = timeline.length > 1 ? latestRating! - timeline[0].rating : null;
 
   if (!conn || games.length === 0) {
     return (
-      <div className="mx-auto max-w-5xl p-6 md:p-10">
+      <div className="app-page">
+        <PageHeader
+          eyebrow="Your development"
+          title="Skills & progress"
+          description="Build a clearer picture of your strengths and your next focus."
+        />
         <EmptyConnect
-          title="Import games to estimate skills"
-          description="Skill scores are computed from your game results, move counts, color performance, rating trend, and available accuracy data."
+          title="See your progress take shape"
+          description="Import your games to explore your rating trend and skill estimates based on results, game length, and available accuracy data."
         />
       </div>
     );
   }
 
-  const skills = computeSkills(games);
-  const timeline = ratingTimeline(games);
-  const sorted = [...skills].sort((a, b) => a.value - b.value);
-  const weakest = sorted.slice(0, 2);
-  const strongest = sorted.slice(-2).reverse();
-
   return (
-    <div className="mx-auto max-w-7xl p-6 md:p-10">
+    <div className="app-page">
       <PageHeader
-        eyebrow="Improvement tracking"
+        eyebrow="Your development"
         title="Skills & progress"
-        description="Heuristic skill estimates from your imported games. These will get sharper as the analysis engine gets deeper."
+        description="See what is working, find your next focus, and keep improving."
+        actions={
+          <Button asChild variant="outline" size="sm">
+            <Link to="/app/train">
+              Start a session
+              <ArrowRight className="ml-1.5 h-4 w-4" />
+            </Link>
+          </Button>
+        }
       />
-
-      <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card className="border-border/60 bg-card/40 p-6">
-          <h3 className="font-display mb-1 text-lg font-semibold">Skill profile</h3>
-          <p className="mb-4 text-xs text-muted-foreground">Six dimensions estimated from play</p>
+      <div className="mb-6 flex items-start gap-2.5 rounded-lg border border-border bg-white px-4 py-3 text-xs leading-5 text-muted-foreground">
+        <Info className="mt-0.5 h-4 w-4 shrink-0" />
+        <p>
+          Skill scores are estimates from your results, game length, ratings, and available accuracy
+          data. Use them as a starting point for practice.
+        </p>
+      </div>
+      <div className="mb-6 grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
+        <Card className="surface-card gap-0 p-5 sm:p-6">
+          <h2 className="text-base font-semibold">Skill profile</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Six areas of your game, scored out of 100
+          </p>
           <RadarChart skills={skills} />
         </Card>
-
-        <Card className="border-border/60 bg-card/40 p-6">
-          <h3 className="font-display mb-1 text-lg font-semibold">Rating over time</h3>
-          <p className="mb-4 text-xs text-muted-foreground">Latest monthly buckets</p>
-          <RatingChart data={timeline} />
-        </Card>
-      </div>
-
-      <div className="mb-6 grid grid-cols-1 gap-6 md:grid-cols-2">
-        <Card className="border-loss/20 bg-loss/[0.04] p-5">
-          <div className="mb-3 flex items-center gap-2">
-            <TrendingDown className="h-4 w-4 text-loss" />
-            <span className="font-mono text-[10px] uppercase tracking-widest text-loss">
-              Biggest weaknesses
+        <Card className="surface-card flex flex-col gap-0 p-5 sm:p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold">Rating over time</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Monthly averages from your imported games
+              </p>
+            </div>
+            <span className="rounded-md bg-background px-2 py-1 text-[11px] text-muted-foreground">
+              Last {timeline.length || 0} months
             </span>
           </div>
-          {weakest.map((s) => (
-            <div
-              key={s.name}
-              className="flex items-center justify-between border-t border-border/30 py-2 first:border-0"
-            >
-              <span className="font-medium">{s.name}</span>
-              <span className="font-mono text-sm">{s.value}/100</span>
-            </div>
-          ))}
-        </Card>
-
-        <Card className="border-win/20 bg-win/[0.04] p-5">
-          <div className="mb-3 flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-win" />
-            <span className="font-mono text-[10px] uppercase tracking-widest text-win">
-              Strengths
-            </span>
-          </div>
-          {strongest.map((s) => (
-            <div
-              key={s.name}
-              className="flex items-center justify-between border-t border-border/30 py-2 first:border-0"
-            >
-              <span className="font-medium">{s.name}</span>
-              <span className="font-mono text-sm">{s.value}/100</span>
-            </div>
-          ))}
-        </Card>
-      </div>
-
-      <Card className="border-border/60 bg-card/40 p-5">
-        <div className="mb-4 flex items-center gap-2">
-          <Target className="h-4 w-4 text-accent" />
-          <h3 className="font-display text-lg font-semibold">All skills</h3>
-        </div>
-        <div className="space-y-4">
-          {skills.map((s) => (
-            <div key={s.name}>
-              <div className="mb-1.5 flex justify-between text-sm">
-                <span className="font-medium">{s.name}</span>
-                <span className="font-mono text-muted-foreground">
-                  {s.value}/100
-                  <span className={s.delta >= 0 ? "ml-2 text-win" : "ml-2 text-loss"}>
-                    {s.delta >= 0 ? "up" : "down"} {Math.abs(s.delta)}
-                  </span>
+          {latestRating != null && (
+            <div className="mb-4 mt-7 flex items-baseline gap-3">
+              <span className="text-3xl font-semibold tracking-tight tabular-nums">
+                {latestRating.toLocaleString()}
+              </span>
+              {ratingChange !== null && (
+                <span
+                  className={`text-xs font-medium ${ratingChange >= 0 ? "text-win" : "text-loss"}`}
+                >
+                  {ratingChange > 0 ? "+" : ""}
+                  {ratingChange} over period
                 </span>
+              )}
+            </div>
+          )}
+          <div className="my-auto">
+            <RatingChart data={timeline} />
+          </div>
+        </Card>
+      </div>
+      <div className="mb-6 grid gap-5 md:grid-cols-2">
+        <Card className="surface-card gap-0 p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <div className="rounded-md bg-[#fbf3e9] p-2 text-[#a66a26]">
+              <Target className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">Your next focus</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Areas with the most room to improve
+              </p>
+            </div>
+          </div>
+          {weakest.map((skill) => (
+            <div
+              key={skill.name}
+              className="flex items-center justify-between border-t border-border/70 py-3 last:pb-0"
+            >
+              <span className="text-sm font-medium">{skillLabel(skill.name)}</span>
+              <span className="text-sm tabular-nums">
+                {skill.value}
+                <span className="ml-0.5 text-xs text-muted-foreground">/ 100</span>
+              </span>
+            </div>
+          ))}
+        </Card>
+        <Card className="surface-card gap-0 p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <div className="rounded-md bg-accent/8 p-2 text-accent">
+              <TrendingUp className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">Build on your strengths</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                The strongest areas in your current profile
+              </p>
+            </div>
+          </div>
+          {strongest.map((skill) => (
+            <div
+              key={skill.name}
+              className="flex items-center justify-between border-t border-border/70 py-3 last:pb-0"
+            >
+              <span className="text-sm font-medium">{skillLabel(skill.name)}</span>
+              <span className="text-sm tabular-nums">
+                {skill.value}
+                <span className="ml-0.5 text-xs text-muted-foreground">/ 100</span>
+              </span>
+            </div>
+          ))}
+        </Card>
+      </div>
+      <Card className="surface-card gap-0 p-5 sm:p-6">
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold">A closer look</h2>
+          <span className="text-xs text-muted-foreground">Estimated score & change</span>
+        </div>
+        <div className="grid gap-x-10 gap-y-6 md:grid-cols-2">
+          {skills.map((skill) => (
+            <div key={skill.name}>
+              <div className="mb-2.5 flex items-center justify-between gap-3 text-sm">
+                <span className="font-medium">{skillLabel(skill.name)}</span>
+                <div className="flex items-center gap-3 tabular-nums">
+                  <span className="text-muted-foreground">
+                    {skill.value}
+                    <span className="text-xs"> / 100</span>
+                  </span>
+                  <span
+                    className={`inline-flex min-w-10 items-center justify-end text-xs font-medium ${skill.delta > 0 ? "text-win" : skill.delta < 0 ? "text-loss" : "text-muted-foreground"}`}
+                    aria-label={
+                      skill.delta === 0
+                        ? "No change"
+                        : `${skill.delta > 0 ? "Up" : "Down"} ${Math.abs(skill.delta)}`
+                    }
+                  >
+                    {skill.delta !== 0 && (
+                      <ArrowUpRight
+                        className={`mr-0.5 h-3.5 w-3.5 ${skill.delta < 0 ? "rotate-90" : ""}`}
+                      />
+                    )}
+                    {skill.delta === 0 ? "—" : Math.abs(skill.delta)}
+                  </span>
+                </div>
               </div>
-              <Progress value={s.value} className="h-2" />
+              <Progress
+                value={skill.value}
+                aria-label={`${skillLabel(skill.name)}: ${skill.value} out of 100`}
+                className="h-1.5"
+              />
             </div>
           ))}
         </div>

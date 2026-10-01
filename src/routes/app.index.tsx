@@ -1,316 +1,113 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
+import { lazy, Suspense, useMemo, useState } from "react";
+import { ArrowRight, ArrowUpRight, BookOpen, Brain, Check, ChevronLeft, ChevronRight, CircleHelp, Flame, GitBranch, RotateCw, ScanSearch, Swords, Target, TrendingUp, Trophy } from "lucide-react";
+import { Chess } from "chess.js";
+import { ChessBoard } from "@/components/chess-board";
 import { PageHeader } from "@/components/page-header";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { EmptyConnect } from "@/components/empty-connect";
 import { useConnection, useGames, usePinned, useRepertoire } from "@/lib/chess/hooks";
-import { computeSkills, computeStats, detectIssues, ratingTimeline } from "@/lib/chess/stats";
-import type { StoredGame } from "@/lib/chess/types";
-import {
-  TrendingUp,
-  Flame,
-  ArrowUpRight,
-  AlertTriangle,
-  Brain,
-  GitBranch,
-  Swords,
-} from "lucide-react";
-
+import { computeSkills, computeStats, detectIssues } from "@/lib/chess/stats";
+const ConnectDialog = lazy(() => import("@/components/connect-dialog").then((m) => ({ default: m.ConnectDialog })));
 export const Route = createFileRoute("/app/")({
   head: () => ({ meta: [{ title: "Overview - NeverPay4Chess" }] }),
   component: Overview,
 });
 
-function Sparkline({ data }: { data: { rating: number }[] }) {
-  const chartData =
-    data.length >= 2 ? data : [{ rating: data[0]?.rating ?? 0 }, { rating: data[0]?.rating ?? 0 }];
-  const max = Math.max(...chartData.map((d) => d.rating));
-  const min = Math.min(...chartData.map((d) => d.rating));
-  const range = max - min || 1;
-  const w = 200;
-  const h = 50;
-  const pts = chartData
-    .map((d, i) => {
-      const x = (i / (chartData.length - 1)) * w;
-      const y = h - ((d.rating - min) / range) * h;
-      return `${x},${y}`;
-    })
-    .join(" ");
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="h-12 w-full">
-      <defs>
-        <linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polygon points={`0,${h} ${pts} ${w},${h}`} fill="url(#sparkfill)" />
-      <polyline
-        points={pts}
-        fill="none"
-        stroke="var(--gold)"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-      />
-    </svg>
-  );
-}
-
-function formatDate(ts: number) {
-  return new Date(ts * 1000).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function colorGlyph(game: StoredGame) {
-  return game.myColor === "white" ? "W" : "B";
-}
+const STUDY_MOVES = ["e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5"];
+const STUDY_POSITIONS = (() => {
+  const chess = new Chess();
+  return [chess.fen(), ...STUDY_MOVES.map((move) => { chess.move(move); return chess.fen(); })];
+})();
 
 function Overview() {
   const conn = useConnection();
   const games = useGames();
   const pinned = usePinned();
   const repertoire = useRepertoire();
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [studyPly, setStudyPly] = useState(5);
+  const [flipped, setFlipped] = useState(false);
+  const hasGames = games.length > 0;
+  const stats = useMemo(() => computeStats(games), [games]);
+  const skills = useMemo(() => computeSkills(games), [games]);
+  const issues = useMemo(() => detectIssues(games), [games]);
+  const due = pinned.filter((position) => position.due <= Date.now());
+  const weakest = useMemo(() => [...skills].sort((a, b) => a.value - b.value)[0], [skills]);
+  const current = due[0];
+  const boardOptions = useMemo(() => ({
+    id: "overview-board",
+    position: current?.fen ?? STUDY_POSITIONS[studyPly],
+    boardOrientation: (flipped ? "black" : "white") as "white" | "black",
+    allowDragging: false,
+    allowDrawingArrows: false,
+    animationDurationInMs: 140,
+  }), [current?.fen, studyPly, flipped]);
 
-  if (!conn || games.length === 0) {
-    return (
-      <div className="mx-auto max-w-5xl p-6 md:p-10">
-        <EmptyConnect
-          title="Import your games to build the dashboard"
-          description="Connect a Chess.com or Lichess username and the overview will fill with your real rating, results, openings, and training queue."
-        />
-      </div>
-    );
-  }
+  return <div className="app-page">
+    <PageHeader eyebrow="Your personal chess workspace" title={conn ? `Welcome back, ${conn.username}.` : "Make your next move count."}
+      description={hasGames ? "A clear view of your game. A focused path to getting better." : "Your games, your openings, your progress. Everything you need to improve, in one place."}
+      actions={<Button variant="outline" asChild><Link to={hasGames ? "/app/train" : "/app/games"}>{hasGames ? <Brain /> : <Swords />}{hasGames ? "Start training" : "Explore your games"}<ArrowUpRight /></Link></Button>} />
 
-  const stats = computeStats(games);
-  const skills = computeSkills(games);
-  const timeline = ratingTimeline(games);
-  const issues = detectIssues(games);
-  const recent = games.slice(0, 5);
-  const due = pinned.filter((p) => p.due <= Date.now());
-  const weakest = [...skills].sort((a, b) => a.value - b.value)[0];
-  const streakLabel =
-    stats.currentStreak > 0
-      ? `${stats.currentStreak} win${stats.currentStreak === 1 ? "" : "s"}`
-      : stats.currentStreak < 0
-        ? `${Math.abs(stats.currentStreak)} loss${stats.currentStreak === -1 ? "" : "es"}`
-        : "No streak";
+    <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {[
+        { label: "Current rating", value: hasGames ? stats.rating ?? "Unrated" : "—", detail: hasGames ? `${stats.ratingDelta > 0 ? "+" : ""}${stats.ratingDelta} over the last 30 days` : "Connect to see your rating", icon: TrendingUp, tone: "text-accent bg-accent/8" },
+        { label: "Win rate", value: hasGames ? `${stats.winRate}%` : "—", detail: hasGames ? `${stats.wins} wins · ${stats.draws} draws · ${stats.losses} losses` : "Your results, at a glance", icon: Trophy, tone: "text-[#a7762e] bg-[#a7762e]/8" },
+        { label: "Games reviewed", value: hasGames ? games.length.toLocaleString() : "0", detail: hasGames ? `Imported from ${conn?.platform ?? "your account"}` : "Your game library starts here", icon: Swords, tone: "text-[#547bac] bg-[#547bac]/8" },
+        { label: "Training queue", value: due.length.toString(), detail: pinned.length ? `${pinned.length} saved positions · ${due.length} due` : "Build your personal practice", icon: Brain, tone: "text-[#9471aa] bg-[#9471aa]/8" },
+      ].map((metric) => <div key={metric.label} className="surface-card metric-card">
+        <div className="mb-4 flex items-center justify-between gap-2"><span className="text-xs font-medium text-muted-foreground">{metric.label === "Games reviewed" ? "Games imported" : metric.label}</span><span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${metric.tone}`}><metric.icon className="h-3.5 w-3.5" /></span></div>
+        <div className="metric-value">{metric.value}</div><div className="mt-2 text-[10px] leading-relaxed text-muted-foreground">{metric.detail}</div>
+      </div>)}
+    </div>
 
-  return (
-    <div className="mx-auto max-w-7xl p-6 md:p-10">
-      <PageHeader
-        eyebrow="Today's training plan"
-        title={`Welcome back, ${conn.username}`}
-        description={`Your weakest current area is ${weakest.name.toLowerCase()}. The dashboard is built from ${games.length} imported ${conn.platform} games.`}
-        actions={
-          <>
-            <Button variant="outline" asChild>
-              <Link to="/app/train">Resume training</Link>
-            </Button>
-            <Button asChild className="bg-accent text-accent-foreground hover:bg-accent/90">
-              <Link to="/app/games">
-                Review games <ArrowUpRight className="ml-1 h-4 w-4" />
-              </Link>
-            </Button>
-          </>
-        }
-      />
+    <div className="overview-workspace">
+      <section className="surface-card overview-board-card">
+        <div className="mb-1 flex items-start justify-between gap-3"><div><div className="section-kicker">{current ? "Your next training position" : "On the board"}</div><h2 className="mt-1.5 text-lg font-semibold">{current ? current.label : "The Italian Game"}</h2></div><span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-medium text-muted-foreground">{current ? "Ready to review" : "Study preview"}</span></div>
+        <div className="overview-board">
+          <div className="overview-player"><span className="overview-player-avatar">{flipped ? "♔" : "♚"}</span><span className="text-xs font-semibold">{flipped ? "White" : "Black"} pieces</span><span className="ml-auto text-[10px] text-muted-foreground">{current ? "Saved position" : "Opening essentials"}</span></div>
+          <ChessBoard options={boardOptions} />
+          <div className="overview-player"><span className="overview-player-avatar">{flipped ? "♚" : "♔"}</span><span className="text-xs font-semibold">{flipped ? "Black" : "White"} pieces</span><button aria-label="Flip board" onClick={() => setFlipped((value) => !value)} className="ml-auto rounded-md p-2 text-muted-foreground hover:bg-secondary"><RotateCw className="h-3.5 w-3.5" /></button></div>
+        </div>
+        {current ? <Button className="mt-2 w-full" asChild><Link to="/app/train">Practice this position <ArrowRight /></Link></Button> : <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+          <div className="flex flex-wrap items-center gap-1 text-xs">{STUDY_MOVES.map((move, index) => <button key={index} onClick={() => setStudyPly(index + 1)} aria-label={`Show position after ${move}`} aria-pressed={studyPly === index + 1} className={`rounded px-1.5 py-1 font-mono ${studyPly === index + 1 ? "bg-accent/10 font-bold text-accent" : "text-muted-foreground hover:bg-muted"}`}>{index % 2 === 0 ? `${Math.floor(index / 2) + 1}. ` : ""}{move}</button>)}</div>
+          <div className="flex gap-1"><Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Previous opening move" disabled={studyPly === 0} onClick={() => setStudyPly((ply) => ply - 1)}><ChevronLeft /></Button><Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Next opening move" disabled={studyPly === 6} onClick={() => setStudyPly((ply) => ply + 1)}><ChevronRight /></Button></div>
+        </div>}
+      </section>
 
-      <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-border/60 bg-card/40 p-5">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Current rating
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="font-display text-4xl font-semibold">{stats.rating ?? "N/A"}</div>
-            {stats.ratingDelta !== 0 && (
-              <Badge className="gap-1 border-win/30 bg-win/15 text-win hover:bg-win/15">
-                <TrendingUp className="h-3 w-3" />
-                {stats.ratingDelta > 0 ? "+" : ""}
-                {stats.ratingDelta}
-              </Badge>
-            )}
-          </div>
-          <Sparkline data={timeline} />
-        </Card>
+      <div className="flex min-w-0 flex-col gap-5">
+        <section className="overview-focus">
+          <div className="mb-5 flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[#b6d4c6]"><Target className="h-3.5 w-3.5" /> {hasGames ? "Your next step" : "A stronger game starts here"}</div>
+          <h2 className="text-[25px] font-semibold leading-[1.2] tracking-tight">{hasGames ? due.length ? `${due.length} positions.\nOne sharper player.` : "Turn your last game into your next lesson." : "Small improvements.\nStronger chess."}</h2>
+          <p className="mt-3 text-xs leading-[1.8] text-[#bdd1c9]">{hasGames ? due.length ? "Your personal training queue is ready. Revisit key positions and make the right moves stick." : `Focus on ${weakest.name.toLowerCase()} today. Review your decisions, explore another line, and take one useful idea into your next game.` : "Connect your Chess.com or Lichess account. We’ll bring your games together so you can focus on what to improve."}</p>
+          {hasGames ? <Button asChild className="mt-5 w-full bg-white text-[#214d3d] shadow-none hover:bg-[#edf4ef]"><Link to={due.length ? "/app/train" : "/app/games"}>{due.length ? "Start a training session" : "Review your games"}<ArrowRight /></Link></Button> : <Button onClick={() => setConnectOpen(true)} className="mt-5 w-full bg-white text-[#214d3d] shadow-none hover:bg-[#edf4ef]">Connect your account <ArrowRight /></Button>}
+          <div className="mt-4 flex items-center justify-center gap-1.5 text-[10px] text-[#bdd1c9]">{hasGames ? <><Flame className="h-3 w-3" />{stats.currentStreak > 0 ? `${stats.currentStreak} game winning streak. Keep learning.` : "One thoughtful review makes a difference."}</> : <><Check className="h-3 w-3" /> No password needed. No subscription.</>}</div>
+        </section>
 
-        <Card className="border-border/60 bg-card/40 p-5">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Win rate
-          </div>
-          <div className="mt-2 font-display text-4xl font-semibold">{stats.winRate}%</div>
-          <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-muted">
-            <div className="bg-win" style={{ width: `${stats.winRate}%` }} />
-            <div className="bg-draw" style={{ width: `${stats.drawRate}%` }} />
-            <div className="bg-loss" style={{ width: `${stats.lossRate}%` }} />
-          </div>
-          <div className="mt-2 flex justify-between font-mono text-[10px] text-muted-foreground">
-            <span>{stats.wins}W</span>
-            <span>{stats.draws}D</span>
-            <span>{stats.losses}L</span>
-          </div>
-        </Card>
-
-        <Card className="border-border/60 bg-card/40 p-5">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Games imported
-          </div>
-          <div className="mt-2 font-display text-4xl font-semibold">{stats.total}</div>
-          <div className="mt-3 text-xs text-muted-foreground">from {conn.platform}</div>
-          <Link
-            to="/app/games"
-            className="mt-2 inline-flex items-center gap-1 text-xs text-accent hover:underline"
-          >
-            See history <ArrowUpRight className="h-3 w-3" />
-          </Link>
-        </Card>
-
-        <Card className="relative overflow-hidden border-border/60 bg-card/40 p-5">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Current streak
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <div className="font-display text-4xl font-semibold">
-              {Math.abs(stats.currentStreak)}
-            </div>
-            <Flame className="h-5 w-5 text-accent" />
-          </div>
-          <div className="mt-3 text-xs text-muted-foreground">{streakLabel}</div>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="border-border/60 bg-card/40 p-5 lg:col-span-2">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h3 className="font-display flex items-center gap-2 text-lg font-semibold">
-                <Swords className="h-4 w-4 text-accent" /> Recent games
-              </h3>
-              <p className="text-xs text-muted-foreground">Last 5 games imported</p>
-            </div>
-            <Link to="/app/games" className="text-xs text-accent hover:underline">
-              View all
-            </Link>
-          </div>
-          <div className="space-y-1">
-            {recent.map((g) => (
-              <Link
-                key={g.id}
-                to="/app/games/$gameId"
-                params={{ gameId: g.id }}
-                className="group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition hover:bg-muted/40"
-              >
-                <div
-                  className={`h-2 w-2 shrink-0 rounded-full ${
-                    g.result === "win" ? "bg-win" : g.result === "loss" ? "bg-loss" : "bg-draw"
-                  }`}
-                />
-                <div className="grid h-6 w-6 shrink-0 place-items-center rounded-sm bg-muted font-mono text-[10px]">
-                  {colorGlyph(g)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{g.opening}</div>
-                  <div className="font-mono text-[11px] text-muted-foreground">
-                    vs {g.oppName} - {g.oppRating ?? "unrated"}
-                  </div>
-                </div>
-                <div className="hidden text-right sm:block">
-                  <div
-                    className={`font-mono text-xs font-semibold ${
-                      g.result === "win"
-                        ? "text-win"
-                        : g.result === "loss"
-                          ? "text-loss"
-                          : "text-draw"
-                    }`}
-                  >
-                    {g.result.toUpperCase()}
-                  </div>
-                  <div className="font-mono text-[10px] text-muted-foreground">
-                    {g.accuracy == null ? formatDate(g.endTime) : `${g.accuracy}% acc`}
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </Card>
-
-        <Card className="border-border/60 bg-card/40 p-5">
-          <h3 className="font-display mb-1 text-lg font-semibold">Your skills</h3>
-          <p className="mb-4 text-xs text-muted-foreground">Estimated from imported games</p>
-          <div className="space-y-3">
-            {skills.map((s) => (
-              <div key={s.name}>
-                <div className="mb-1.5 flex justify-between text-xs">
-                  <span className="font-medium">{s.name}</span>
-                  <span className="font-mono text-muted-foreground">
-                    {s.value}
-                    <span className={s.delta >= 0 ? "ml-1 text-win" : "ml-1 text-loss"}>
-                      {s.delta >= 0 ? "+" : ""}
-                      {s.delta}
-                    </span>
-                  </span>
-                </div>
-                <Progress value={s.value} className="h-1.5" />
-              </div>
-            ))}
-          </div>
-          <Link
-            to="/app/skills"
-            className="mt-4 inline-flex items-center gap-1 text-xs text-accent hover:underline"
-          >
-            See full breakdown <ArrowUpRight className="h-3 w-3" />
-          </Link>
-        </Card>
-      </div>
-
-      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-        {[
-          {
-            icon: AlertTriangle,
-            label: "Mistakes",
-            title: `${issues.length} issues detected`,
-            desc: "Heuristic review queue from short losses, mates, and low-accuracy games.",
-            to: "/app/mistakes",
-          },
-          {
-            icon: Brain,
-            label: "Train",
-            title: `${due.length} positions due`,
-            desc: `${pinned.length} total pinned training positions.`,
-            to: "/app/train",
-          },
-          {
-            icon: GitBranch,
-            label: "Repertoire",
-            title: `${repertoire.length} saved lines`,
-            desc: "Saved opening lines and notes from your personal book.",
-            to: "/app/repertoire",
-          },
-        ].map((c) => (
-          <Link key={c.title} to={c.to as string} className="group">
-            <Card className="h-full border-border/60 bg-card/40 p-5 transition hover:border-accent/40 hover:bg-card/60">
-              <div className="mb-3 flex items-center gap-2">
-                <c.icon className="h-4 w-4 text-accent" />
-                <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                  {c.label}
-                </span>
-              </div>
-              <h4 className="font-display text-lg font-semibold">{c.title}</h4>
-              <p className="mt-1 text-xs text-muted-foreground">{c.desc}</p>
-              <div className="mt-3 inline-flex items-center gap-1 text-xs text-accent opacity-0 transition group-hover:opacity-100">
-                Open <ArrowUpRight className="h-3 w-3" />
-              </div>
-            </Card>
-          </Link>
-        ))}
+        <section className="surface-card overflow-hidden">
+          <div className="border-b border-border px-5 py-4"><h2 className="text-sm font-semibold">Your improvement toolkit</h2></div>
+          {[
+            { title: "Explore your openings", desc: "Find the lines that work for you", icon: GitBranch, to: "/app/openings", value: "" },
+            { title: "Build your repertoire", desc: "Give every position a plan", icon: BookOpen, to: "/app/repertoire", value: repertoire.length ? String(repertoire.length) : "" },
+            { title: "Learn from mistakes", desc: "Find a better move next time", icon: ScanSearch, to: "/app/mistakes", value: issues.length ? String(issues.length) : "" },
+          ].map((item) => <Link key={item.to} to={item.to} className="quick-link"><span className="icon-tile"><item.icon className="h-4 w-4" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{item.title}</span><span className="mt-1 block text-[10px] text-muted-foreground">{item.desc}</span></span>{item.value && <span className="text-xs text-muted-foreground">{item.value}</span>}<ChevronRight className="h-3.5 w-3.5 text-muted-foreground" /></Link>)}
+        </section>
+        <div className="flex items-start gap-2.5 px-1"><CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><p className="text-[11px] leading-relaxed text-muted-foreground">Your workspace is personal. Games and training progress are saved in this browser on this device.</p></div>
       </div>
     </div>
-  );
+
+    <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(280px,1fr)]">
+      <section className="surface-card overflow-hidden">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4"><h2 className="text-sm font-semibold">Recent games</h2><Link to="/app/games" className="flex items-center gap-1 text-[11px] font-medium text-accent">View all games <ArrowUpRight className="h-3 w-3" /></Link></div>
+        {hasGames ? <div className="divide-y divide-border">{games.slice(0, 5).map((game) => <Link key={game.id} to="/app/games/$gameId" params={{ gameId: game.id }} className="flex items-center gap-3 px-5 py-4 transition-colors hover:bg-secondary/40"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-muted font-serif text-xl">{game.myColor === "white" ? "♙" : "♟"}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold">{game.opening}</span><span className="mt-1 block text-[10px] text-muted-foreground">vs {game.oppName} · {game.oppRating ?? "Unrated"}</span></span><span className={`rounded-md px-2 py-1 text-[10px] font-semibold capitalize ${game.result === "win" ? "bg-win/8 text-win" : game.result === "loss" ? "bg-loss/8 text-loss" : "bg-muted text-muted-foreground"}`}>{game.result}</span><ChevronRight className="h-3 w-3 text-muted-foreground" /></Link>)}</div> : <div className="flex min-h-[220px] flex-col items-center justify-center p-6 text-center"><span className="icon-tile mb-3"><Swords className="h-5 w-5" /></span><h3 className="text-sm font-semibold">Every game has something to teach you.</h3><p className="mt-2 max-w-sm text-xs leading-relaxed text-muted-foreground">Import your games to explore your history and revisit the moments that mattered.</p><button onClick={() => setConnectOpen(true)} className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-accent">Import your first games <ArrowRight className="h-3 w-3" /></button></div>}
+      </section>
+      <section className="surface-card p-5">
+        <div className="mb-1 flex items-center justify-between"><h2 className="text-sm font-semibold">Your skill profile</h2><Link to="/app/skills" aria-label="View skills and progress" className="rounded p-1 text-muted-foreground hover:text-accent"><ArrowUpRight className="h-4 w-4" /></Link></div>
+        <p className="mb-5 text-[10px] text-muted-foreground">{hasGames ? "Estimates based on your imported games" : "Your strengths will take shape as you play"}</p>
+        <div className="space-y-3.5">{skills.map((skill) => <div key={skill.name}><div className="mb-1.5 flex justify-between text-[11px]"><span>{skill.name}</span><span className="tabular-nums text-muted-foreground">{hasGames ? skill.value : "—"}</span></div><Progress value={hasGames ? skill.value : 0} className="h-1.5 bg-muted" /></div>)}</div>
+      </section>
+    </div>
+    {connectOpen && <Suspense fallback={null}><ConnectDialog open={connectOpen} onOpenChange={setConnectOpen} initialUsername={conn?.username} initialPlatform={conn?.platform} /></Suspense>}
+  </div>;
 }
+
