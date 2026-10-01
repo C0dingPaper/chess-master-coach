@@ -22,7 +22,7 @@ type SelectedLine = {
   index: number;
 };
 
-type EloCarrier = {
+type OpeningPerformance = {
   color: Color;
   opening: string;
   eco: string;
@@ -31,7 +31,7 @@ type EloCarrier = {
   draws: number;
   losses: number;
   scorePct: number;
-  ratingGain: number | null;
+  netWins: number;
   smallSample: boolean;
 };
 
@@ -62,7 +62,7 @@ function formatSignedInt(value: number) {
   return `${value}`;
 }
 
-function computeEloCarrier(games: StoredGame[], color: Color): EloCarrier | null {
+function computeOpeningPerformance(games: StoredGame[], color: Color): OpeningPerformance | null {
   const groups = new Map<
     string,
     { color: Color; opening: string; eco: string; games: StoredGame[] }
@@ -85,11 +85,7 @@ function computeEloCarrier(games: StoredGame[], color: Color): EloCarrier | null
     const losses = group.games.filter((game) => game.result === "loss").length;
     const count = group.games.length;
     const points = wins + draws * 0.5;
-    const rated = group.games
-      .filter((game) => game.myRating != null)
-      .sort((a, b) => a.endTime - b.endTime);
-    const ratingGain =
-      rated.length >= 2 ? rated[rated.length - 1].myRating! - rated[0].myRating! : null;
+    const netWins = wins - losses;
     return {
       color: group.color,
       opening: group.opening,
@@ -99,7 +95,7 @@ function computeEloCarrier(games: StoredGame[], color: Color): EloCarrier | null
       draws,
       losses,
       scorePct: Math.round((points / count) * 100),
-      ratingGain,
+      netWins,
       smallSample: count < 3,
     };
   });
@@ -263,7 +259,7 @@ function TreeSection({
   );
 }
 
-function EloCarrierCard({ carrier }: { carrier: EloCarrier | null }) {
+function OpeningPerformanceCard({ carrier }: { carrier: OpeningPerformance | null }) {
   if (!carrier) return null;
   const colorLabel = carrier.color === "white" ? "White" : "Black";
 
@@ -288,9 +284,7 @@ function EloCarrierCard({ carrier }: { carrier: EloCarrier | null }) {
           <p className="mt-2 text-sm text-muted-foreground">
             Your winningest {colorLabel.toLowerCase()} opening: {carrier.wins} wins across{" "}
             {carrier.count} games, with a {carrier.scorePct}% score.
-            {carrier.ratingGain == null
-              ? " Rating trend needs at least two rated games."
-              : ` ${formatSignedInt(carrier.ratingGain)} rating over this sample.`}
+            {` ${formatSignedInt(carrier.netWins)} net wins with this opening (wins minus losses; draws are neutral).`}
           </p>
         </div>
         <div className="grid grid-cols-2 gap-px bg-border/50 md:grid-cols-2">
@@ -298,8 +292,8 @@ function EloCarrierCard({ carrier }: { carrier: EloCarrier | null }) {
             { label: "Record", value: `${carrier.wins}-${carrier.draws}-${carrier.losses}` },
             { label: "Score", value: `${carrier.scorePct}%` },
             {
-              label: "Rating gain",
-              value: carrier.ratingGain == null ? "N/A" : formatSignedInt(carrier.ratingGain),
+              label: "Net wins",
+              value: formatSignedInt(carrier.netWins),
             },
             { label: "Games", value: carrier.count.toString() },
           ].map((stat) => (
@@ -417,10 +411,10 @@ function OpeningsPage() {
       : picked.nodes
           .slice(0, Math.max(0, picked.index + 1))
           .map((node, depth) => formatTreeMoveLabel(picked.color, depth, node.san));
-  const eloCarriers = useMemo(
+  const openingPerformances = useMemo(
     () => ({
-      white: computeEloCarrier(games, "white"),
-      black: computeEloCarrier(games, "black"),
+      white: computeOpeningPerformance(games, "white"),
+      black: computeOpeningPerformance(games, "black"),
     }),
     [games],
   );
@@ -466,8 +460,8 @@ function OpeningsPage() {
       />
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
-        <EloCarrierCard carrier={eloCarriers.white} />
-        <EloCarrierCard carrier={eloCarriers.black} />
+        <OpeningPerformanceCard carrier={openingPerformances.white} />
+        <OpeningPerformanceCard carrier={openingPerformances.black} />
       </div>
 
       <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(380px,0.9fr)]">

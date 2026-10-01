@@ -37,6 +37,8 @@ import {
   Loader2,
   MessageSquareText,
   RotateCcw,
+  PanelRightClose,
+  PanelRightOpen,
   Sparkles,
   Trash2,
   ZoomIn,
@@ -856,6 +858,7 @@ function GameReviewPage() {
   const liveEvaluationCacheRef = useRef(new Map<string, PositionEvaluation>());
   const liveEvaluationEngineRef = useRef<StockfishClient | null>(null);
   const [selectedPly, setSelectedPly] = useState(0);
+  const [reviewPanelCollapsed, setReviewPanelCollapsed] = useState(false);
   const [boardZoom, setBoardZoom] = useState(100);
   const [boardOrientation, setBoardOrientation] = useState<Color>(game?.myColor ?? "white");
   const [reviewStrength, setReviewStrength] = useState(10);
@@ -1802,6 +1805,21 @@ function GameReviewPage() {
         description={`${game.opening} - ${game.eco} - ${formatDate(game.endTime)}`}
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setReviewPanelCollapsed((collapsed) => !collapsed)}
+              aria-expanded={!reviewPanelCollapsed}
+              aria-controls="game-review-panel"
+            >
+              {reviewPanelCollapsed ? (
+                <PanelRightOpen className="mr-1.5 h-4 w-4" />
+              ) : (
+                <PanelRightClose className="mr-1.5 h-4 w-4" />
+              )}
+              {reviewPanelCollapsed ? "Show panel" : "Hide panel"}
+            </Button>
             <Button variant="outline" size="sm" asChild>
               <a href="/app/games">
                 <ArrowLeft className="mr-1.5 h-4 w-4" />
@@ -1874,7 +1892,9 @@ function GameReviewPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(350px,1fr)]">
+      <div
+        className={`grid grid-cols-1 items-start gap-5 ${reviewPanelCollapsed ? "" : "xl:grid-cols-[minmax(0,1.45fr)_minmax(350px,1fr)]"}`}
+      >
         <div className="min-w-0 space-y-5">
           <Card ref={boardPanelRef} className="border-border bg-card p-3 sm:p-4">
             <div className="mb-4 flex items-center gap-3 rounded-md border border-border/50 bg-background/40 px-3 py-2">
@@ -1955,7 +1975,11 @@ function GameReviewPage() {
           </Card>
         </div>
 
-        <Card className="min-w-0 self-start border-border bg-card">
+        <Card
+          id="game-review-panel"
+          hidden={reviewPanelCollapsed}
+          className={`min-w-0 self-start border-border bg-card ${reviewPanelCollapsed ? "hidden" : ""}`}
+        >
           <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
             <div>
               <h2 className="font-display text-xl font-semibold">Annotated game</h2>
