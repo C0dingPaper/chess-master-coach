@@ -6,7 +6,7 @@ export { evaluationToCentipawns } from "@/lib/chess/engine-evaluation";
 type LineHandler = (line: string) => void;
 type ErrorHandler = (error: Error) => void;
 
-const STOCKFISH_DEBUG = true;
+const STOCKFISH_DEBUG = false;
 
 function debugStockfish(...args: unknown[]) {
   if (!STOCKFISH_DEBUG) return;
@@ -39,6 +39,7 @@ function workerUrl() {
 
 export class StockfishClient {
   private worker: Worker;
+  private disposed = false;
   private handlers = new Set<LineHandler>();
   private errorHandlers = new Set<ErrorHandler>();
   private initialized = false;
@@ -150,6 +151,7 @@ export class StockfishClient {
 
     debugStockfish("uci ready after", Math.round(performance.now() - startedAt), "ms");
 
+    this.send("setoption name Threads value 1");
     this.send("setoption name Hash value 128");
     this.send("setoption name Skill Level value 20");
     this.send("setoption name Move Overhead value 10");
@@ -294,6 +296,10 @@ export class StockfishClient {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const handler of [...this.errorHandlers])
+      handler(new Error("Stockfish analysis cancelled"));
     try {
       this.send("quit");
     } catch {

@@ -1,18 +1,6 @@
 import { timeFormatLabel } from "@/lib/chess/time-format";
 import { createFileRoute } from "@tanstack/react-router";
-import { PageHeader } from "@/components/page-header";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Slider } from "@/components/ui/slider";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -29,20 +17,12 @@ import type { Color, StoredGame } from "@/lib/chess/types";
 import { Chess, DEFAULT_POSITION, type Move as ChessMove } from "chess.js";
 import {
   ArrowLeft,
-  BrainCircuit,
   ChevronLeft,
   ChevronRight,
-  CircleStop,
-  GraduationCap,
-  Loader2,
-  MessageSquareText,
   RotateCcw,
   PanelRightClose,
   PanelRightOpen,
-  Sparkles,
   Trash2,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChessboardOptions } from "react-chessboard";
@@ -106,8 +86,6 @@ type AnalyzeState = {
   message: string;
 };
 
-type CoachReviewState = AnalyzeState;
-
 type CoachInsight = {
   title: string;
   explanation: string;
@@ -124,13 +102,6 @@ type LiveEvaluationState = {
   status: "idle" | "running" | "ready" | "error";
 };
 
-const REVIEW_STRENGTH_OPTIONS = [
-  { value: 8, label: "Fast", note: "Quick review" },
-  { value: 10, label: "Balanced", note: "Recommended" },
-  { value: 12, label: "Strong", note: "Slower" },
-  { value: 14, label: "Deep", note: "Best browser quality" },
-] as const;
-
 const EVAL_BAR_DEBOUNCE_MS = 120;
 const EVAL_BAR_MOVETIME_MS = 180;
 const EVAL_BAR_TIMEOUT_MS = 1400;
@@ -144,11 +115,6 @@ const OPENING_PLIES_TO_SKIP_FOR_DEEPENING = 8;
 const MAX_DEEPENED_MOVES = 8;
 const ANALYSIS_RERUN_RESET_DELAY_MS = 180;
 const BEST_MOVE_ARROW_COLOR = "oklch(0.78 0.16 165 / 0.9)";
-const COACH_REVIEW_TARGET_MS = 40000;
-const COACH_REVIEW_MIN_MOVETIME_MS = 550;
-const COACH_REVIEW_MAX_MOVETIME_MS = 1600;
-const COACH_REVIEW_TIMEOUT_BUFFER_MS = 1600;
-const COACH_REVIEW_HARD_TIMEOUT_BUFFER_MS = 3200;
 
 const DEEPEN_MOVETIME_BY_DEPTH: Record<number, number> = {
   8: 400,
@@ -195,12 +161,6 @@ function resultClass(result: StoredGame["result"]) {
   return "text-draw";
 }
 
-function resultDot(result: StoredGame["result"]) {
-  if (result === "win") return "bg-win";
-  if (result === "loss") return "bg-loss";
-  return "bg-draw";
-}
-
 function annotationLabel(kind: AnnotationKind) {
   if (kind === "brilliancy") return "Brilliancy";
   if (kind === "good") return "Good";
@@ -209,21 +169,6 @@ function annotationLabel(kind: AnnotationKind) {
   if (kind === "blunder") return "Blunder";
   if (kind === "test") return "Test move";
   return "Pending";
-}
-
-function annotationClass(kind: AnnotationKind, active = false) {
-  const focus = active ? "ring-1 ring-offset-1 ring-offset-background" : "";
-  if (kind === "brilliancy")
-    return `${focus} border-blue-200 bg-blue-50 text-blue-700 ring-blue-400/70`;
-  if (kind === "good")
-    return `${focus} border-emerald-200 bg-emerald-50 text-emerald-800 ring-emerald-400/70`;
-  if (kind === "inaccuracy")
-    return `${focus} border-amber-200 bg-amber-50 text-amber-800 ring-amber-400/70`;
-  if (kind === "mistake")
-    return `${focus} border-orange-200 bg-orange-50 text-orange-800 ring-orange-400/70`;
-  if (kind === "blunder") return `${focus} border-loss/50 bg-loss/20 text-loss ring-loss/70`;
-  if (kind === "test") return `${focus} border-accent/45 bg-accent/15 text-accent ring-accent/70`;
-  return `${focus} border-border/50 bg-muted/30 text-muted-foreground ring-border/70`;
 }
 
 function annotationColor(kind: AnnotationKind) {
@@ -470,14 +415,6 @@ function playerCentipawns(whiteCp: number | null, color: Color) {
   return color === "white" ? whiteCp : -whiteCp;
 }
 
-function coachReviewMoveTime(moveCount: number) {
-  const evaluations = Math.max(1, moveCount * 2);
-  return Math.max(
-    COACH_REVIEW_MIN_MOVETIME_MS,
-    Math.min(COACH_REVIEW_MAX_MOVETIME_MS, Math.floor(COACH_REVIEW_TARGET_MS / evaluations)),
-  );
-}
-
 function formatLoss(loss: number | null) {
   if (loss == null) return "an unclear amount";
   if (loss >= 90000) return "a mating advantage";
@@ -674,12 +611,9 @@ function VariationMovePill({
         <button
           type="button"
           onClick={onFocus}
-          className={`rounded-md border px-2.5 py-1.5 text-left font-mono text-xs transition hover:brightness-110 ${annotationClass(
-            "test",
-            active,
-          )}`}
+          className={`px-2 py-1 text-left font-mono text-xs hover:bg-muted ${active ? "bg-muted font-semibold" : ""}`}
         >
-          <span className="mr-1 rounded border border-current/25 px-1 text-[10px] opacity-80">
+          <span className="mr-1 text-[10px] text-muted-foreground">
             {move.moveNumber}
             {move.color === "black" ? "..." : "."}
           </span>
@@ -720,7 +654,7 @@ function VariationLine({
   if (moves.length === 0) return null;
 
   return (
-    <div className="rounded-md border border-accent/30 bg-accent/[0.04] p-3">
+    <div className="border-t border-border pt-3">
       <div className="mb-2 flex items-center justify-between gap-3">
         <div>
           <div className="font-mono text-[10px] uppercase tracking-widest text-accent">
@@ -772,31 +706,31 @@ function MoveCell({
 
   const annotation = analysis?.annotation ?? "pending";
 
+  const symbol =
+    annotation === "blunder"
+      ? "??"
+      : annotation === "mistake"
+        ? "?"
+        : annotation === "inaccuracy"
+          ? "?!"
+          : annotation === "brilliancy"
+            ? "!!"
+            : "";
   return (
     <button
       type="button"
       onClick={onClick}
       data-ply={dataPly}
-      className={`min-w-0 rounded-md border px-2 py-1.5 text-left transition hover:brightness-110 ${annotationClass(
-        annotation,
-      )} ${
-        active
-          ? "relative z-10 border-accent ring-2 ring-accent/60 ring-offset-1 ring-offset-background"
-          : ""
-      }`}
+      aria-current={active ? "step" : undefined}
+      title={
+        analysis
+          ? `${annotationLabel(annotation)} · ${formatEval(analysis.evalAfterWhite)}`
+          : move.san
+      }
+      className={`min-w-0 px-3 py-1.5 text-left text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-accent ${active ? "bg-accent/15 font-semibold" : ""}`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate font-mono text-xs font-semibold">{move.san}</span>
-        <span className="shrink-0 font-mono text-[9px] uppercase tracking-widest">
-          {annotation === "pending" ? "..." : annotationLabel(annotation).slice(0, 4)}
-        </span>
-      </div>
-      {analysis && (
-        <div className="mt-1 flex items-center justify-between gap-2 font-mono text-[10px] opacity-80">
-          <span>{formatEval(analysis.evalAfterWhite)}</span>
-          <span>{analysis.loss == null ? "0" : `-${Math.round(analysis.loss)}`}</span>
-        </div>
-      )}
+      {move.san}
+      <span className="ml-1 text-muted-foreground">{symbol}</span>
     </button>
   );
 }
@@ -813,36 +747,42 @@ function EvaluationBar({
   orientation: Color;
 }) {
   const whitePct = evalBarWhitePercent(whiteCp);
-  const whiteIsBottom = orientation === "white";
-  const topColor = whiteIsBottom ? "Black" : "White";
-  const bottomColor = whiteIsBottom ? "White" : "Black";
-  const whiteBarPosition = {
-    transform: `scaleY(${whitePct / 100})`,
-    transformOrigin: whiteIsBottom ? "bottom" : "top",
-  };
-
   return (
     <div
-      className="flex w-9 shrink-0 flex-col items-center gap-1.5"
+      className="relative order-first w-5 shrink-0 overflow-hidden bg-[#333333]"
       aria-label={formatEvalBarLabel(whiteCp)}
+      title={depth == null ? "Position evaluation" : `Depth ${depth}`}
     >
-      <div className="text-[9px] font-medium text-muted-foreground">{topColor}</div>
-      <div className="relative min-h-0 w-7 flex-1 overflow-hidden rounded-md border border-border bg-[#27352e]">
-        <div
-          className="absolute inset-0 bg-[#f5f5ef] transition-transform duration-200 motion-reduce:transition-none"
-          style={whiteBarPosition}
-        />
-        <div className="absolute inset-x-1/2 top-0 h-full w-px -translate-x-1/2 bg-border/30" />
-        <div className="absolute left-1/2 top-1/2 w-20 -translate-x-1/2 -translate-y-1/2 rotate-90 rounded border border-border/70 bg-background/90 px-2 py-1 text-center font-mono text-[10px] text-foreground shadow-sm">
-          {analyzing ? "..." : formatEvalBarLabel(whiteCp)}
-        </div>
-      </div>
-      <div className="text-[9px] font-medium text-muted-foreground">{bottomColor}</div>
-      <div className="h-4 font-mono text-[9px] text-muted-foreground">
-        {depth ? `d${depth}` : ""}
-      </div>
+      <div
+        className="absolute inset-0 bg-[#eeeeee]"
+        style={{
+          transform: `scaleY(${whitePct / 100})`,
+          transformOrigin: orientation === "white" ? "bottom" : "top",
+        }}
+      />
+      <span
+        className="absolute bottom-1 left-0 w-full text-center text-[9px] font-semibold"
+        style={{ color: orientation === "white" ? "#333333" : "#eeeeee" }}
+      >
+        {analyzing && whiteCp == null ? "…" : formatEval(whiteCp)}
+      </span>
     </div>
   );
+}
+
+function fittedBoardWidth(availableWidth: number, viewportHeight: number) {
+  // Leave room for the app header, move controls, and breathing space.
+  return Math.min(availableWidth, Math.max(80, viewportHeight - 184));
+}
+
+function centerReviewBoard(board: HTMLDivElement | null) {
+  requestAnimationFrame(() => {
+    board?.scrollIntoView({
+      block: "center",
+      inline: "center",
+      behavior: "instant",
+    });
+  });
 }
 
 function GameReviewPage() {
@@ -852,16 +792,87 @@ function GameReviewPage() {
   const games = useGames();
   const game = games.find((item) => item.id === decodedGameId);
   const moves = useMemo(() => (game ? buildReviewMoves(game) : []), [game]);
-  const boardPanelRef = useRef<HTMLDivElement>(null);
   const notationRef = useRef<HTMLDivElement>(null);
   const evaluationCacheRef = useRef(new Map<string, PositionEvaluation>());
   const liveEvaluationCacheRef = useRef(new Map<string, PositionEvaluation>());
   const liveEvaluationEngineRef = useRef<StockfishClient | null>(null);
+  const analysisEngineRef = useRef<StockfishClient | null>(null);
+  const analysisRunRef = useRef(0);
   const [selectedPly, setSelectedPly] = useState(0);
   const [reviewPanelCollapsed, setReviewPanelCollapsed] = useState(false);
-  const [boardZoom, setBoardZoom] = useState(100);
+  const boardFrameRef = useRef<HTMLDivElement>(null);
+  const boardScrollIntentRef = useRef(false);
+  const boardResizeRef = useRef<{ pointerId: number; x: number; y: number; width: number } | null>(
+    null,
+  );
+  const [boardWidth, setBoardWidth] = useState<number | null>(null);
+  const [boardAvailableWidth, setBoardAvailableWidth] = useState(684);
+  const canDisplayBoard = Boolean(game && moves.length);
+  const boardWidthClass = "max-w-full";
+  const boardWidthStyle = {
+    width: Math.min(boardWidth ?? 684, boardAvailableWidth),
+    maxWidth: "min(100%, max(80px, calc(100dvh - 184px)))",
+  };
+  useEffect(() => {
+    const board = boardFrameRef.current;
+    const container = board?.parentElement;
+    if (!canDisplayBoard || !board || !container) return;
+    let measureFrame = 0;
+    let centerFrame = 0;
+    let previousGeometry = "";
+    function measure() {
+      cancelAnimationFrame(measureFrame);
+      measureFrame = requestAnimationFrame(() => {
+        const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+        const geometry = `${container!.clientWidth}:${window.innerWidth}:${viewportHeight}`;
+        if (geometry === previousGeometry) return;
+        previousGeometry = geometry;
+        const bounds = board!.getBoundingClientRect();
+        const isVisible = bounds.bottom > 56 && bounds.top < viewportHeight;
+        setBoardAvailableWidth(fittedBoardWidth(container!.clientWidth, viewportHeight));
+        if (isVisible) {
+          cancelAnimationFrame(centerFrame);
+          centerFrame = requestAnimationFrame(() => centerReviewBoard(board));
+        }
+      });
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+    measure();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+      cancelAnimationFrame(measureFrame);
+      cancelAnimationFrame(centerFrame);
+    };
+  }, [decodedGameId, canDisplayBoard]);
+  function resizeBoard(width: number) {
+    const available = boardAvailableWidth;
+    boardScrollIntentRef.current = true;
+    setBoardWidth(Math.min(available, Math.max(220, width)));
+  }
+  useEffect(() => {
+    if (!boardScrollIntentRef.current) return;
+    boardScrollIntentRef.current = false;
+    const frame = requestAnimationFrame(() => {
+      if (boardResizeRef.current) {
+        boardFrameRef.current?.scrollIntoView({
+          block: "center",
+          inline: "center",
+          behavior: "instant",
+        });
+      } else {
+        centerReviewBoard(boardFrameRef.current);
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [boardWidth]);
   const [boardOrientation, setBoardOrientation] = useState<Color>(game?.myColor ?? "white");
-  const [reviewStrength, setReviewStrength] = useState(10);
+  const reviewStrength = 10;
+  const [analysisEnabled, setAnalysisEnabled] = useState(false);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [markedSquares, setMarkedSquares] = useState<string[]>([]);
   const [variationMoves, setVariationMoves] = useState<VariationMove[]>([]);
@@ -873,13 +884,16 @@ function GameReviewPage() {
     total: 0,
     message: "Ready",
   });
-  const [coachReviewState, setCoachReviewState] = useState<CoachReviewState>({
-    status: "idle",
-    progress: 0,
-    total: 0,
-    message: "Ready",
-  });
-  const [coachInsights, setCoachInsights] = useState<Record<number, CoachInsight>>({});
+  const coachInsights = useMemo(() => {
+    const insights: Record<number, CoachInsight> = {};
+    for (const move of moves) {
+      const moveAnalysis = analysis[move.ply];
+      if (!game || !isPlayerMove(move, game.myColor) || !moveAnalysis) continue;
+      const insight = buildCoachInsight(move, moveAnalysis);
+      if (insight) insights[move.ply] = insight;
+    }
+    return insights;
+  }, [analysis, moves, game]);
   const [liveEvaluation, setLiveEvaluation] = useState<LiveEvaluationState>({
     fen: null,
     evaluation: null,
@@ -912,15 +926,7 @@ function GameReviewPage() {
   const progressPct = analyzeState.total
     ? Math.round((analyzeState.progress / analyzeState.total) * 100)
     : 0;
-  const coachProgressPct = coachReviewState.total
-    ? Math.round((coachReviewState.progress / coachReviewState.total) * 100)
-    : 0;
   const summary = useMemo(() => summarizeAnalysis(myMoveAnalysis), [myMoveAnalysis]);
-  const boardMaxZoom = 120;
-  const effectiveBoardZoom = Math.min(boardZoom, boardMaxZoom);
-  const boardBaseSize = 640;
-  const boardPixelSize = Math.round(boardBaseSize * (effectiveBoardZoom / 100));
-  const boardAreaPixelSize = boardPixelSize + 44;
   const displayedPositionIndex = latestVariationMove ? null : selectedPly < 0 ? 0 : selectedPly + 1;
   const displayedPositionEvaluation =
     displayedPositionIndex == null ? null : (positionAnalysis[displayedPositionIndex] ?? null);
@@ -955,7 +961,6 @@ function GameReviewPage() {
   const isEvaluationBarLoading =
     displayedEvalWhite == null &&
     (analyzeState.status === "running" ||
-      coachReviewState.status === "running" ||
       (liveEvaluation.fen === fen && liveEvaluation.status === "running"));
   const hasStoredEvaluation = storedEvalWhite != null;
   const movePairs = [];
@@ -987,18 +992,30 @@ function GameReviewPage() {
   }, []);
 
   useEffect(() => {
-    if (analyzeState.status !== "running" && coachReviewState.status !== "running") return;
+    setAnalysisEnabled(false);
+    setAnalyzeState({ status: "idle", progress: 0, total: 0, message: "Ready" });
+    setAnalysis({});
+    setPositionAnalysis({});
+    return () => {
+      analysisRunRef.current += 1;
+      analysisEngineRef.current?.dispose();
+      analysisEngineRef.current = null;
+    };
+  }, [decodedGameId]);
+
+  useEffect(() => {
+    if (analyzeState.status !== "running") return;
 
     liveEvaluationEngineRef.current?.dispose();
     liveEvaluationEngineRef.current = null;
-  }, [analyzeState.status, coachReviewState.status]);
+  }, [analyzeState.status]);
 
   useEffect(() => {
     if (
       !isClient ||
+      !analysisEnabled ||
       !game ||
       analyzeState.status === "running" ||
-      coachReviewState.status === "running" ||
       hasStoredEvaluation
     ) {
       return;
@@ -1051,7 +1068,7 @@ function GameReviewPage() {
       canceled = true;
       window.clearTimeout(timer);
     };
-  }, [analyzeState.status, coachReviewState.status, fen, game, hasStoredEvaluation, isClient]);
+  }, [analysisEnabled, analyzeState.status, fen, game, hasStoredEvaluation, isClient]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -1096,10 +1113,6 @@ function GameReviewPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [moves.length, variationMoves.length]);
-
-  function handleBoardZoomChange(value: number[]) {
-    setBoardZoom(value[0] ?? 100);
-  }
 
   function flipBoard() {
     setSelectedSquare(null);
@@ -1185,6 +1198,8 @@ function GameReviewPage() {
       boardOrientation,
       allowDragging: true,
       allowDrawingArrows: true,
+      showAnimations: false,
+      animationDurationInMs: 0,
       clearArrowsOnClick: false,
       clearArrowsOnPositionChange: false,
       arrowOptions: {
@@ -1227,8 +1242,13 @@ function GameReviewPage() {
   );
 
   async function analyzeGame() {
-    if (!moves.length || analyzeState.status === "running" || coachReviewState.status === "running")
-      return;
+    if (!moves.length || analyzeState.status === "running" || analysisEngineRef.current) return;
+    const run = ++analysisRunRef.current;
+
+    setAnalysisEnabled(true);
+    setReviewPanelCollapsed(false);
+    liveEvaluationEngineRef.current?.dispose();
+    liveEvaluationEngineRef.current = null;
 
     const hadVisibleAnalysis =
       Object.keys(analysis).length > 0 || Object.keys(positionAnalysis).length > 0;
@@ -1241,6 +1261,7 @@ function GameReviewPage() {
     let pendingPositionUpdates: Record<number, PositionEvaluation> = {};
     let pendingMoveUpdates: Record<number, MoveAnalysis> = {};
     let engine = new StockfishClient();
+    analysisEngineRef.current = engine;
 
     let nextPositionIndex = 0;
     let completedScanPositions = 0;
@@ -1263,6 +1284,7 @@ function GameReviewPage() {
     }
 
     function flushUpdates(message: string, nextProgress = progress, nextTotal = totalUnits) {
+      if (run !== analysisRunRef.current) return;
       const positionUpdates = pendingPositionUpdates;
       const moveUpdates = pendingMoveUpdates;
 
@@ -1301,6 +1323,7 @@ function GameReviewPage() {
       }
 
       engine = new StockfishClient();
+      analysisEngineRef.current = engine;
       await engine.init();
     }
 
@@ -1312,6 +1335,7 @@ function GameReviewPage() {
       movetimeMs?: number,
       hardTimeoutMs?: number,
     ) {
+      if (run !== analysisRunRef.current) throw new Error("Analysis cancelled");
       const cacheKey = `${depth > 0 ? `d${depth}` : `m${movetimeMs ?? 0}`}:${fenToEvaluate}`;
       const cached = evaluationCacheRef.current.get(cacheKey);
 
@@ -1427,6 +1451,7 @@ function GameReviewPage() {
 
     async function runFastScan() {
       while (nextPositionIndex < fens.length) {
+        if (run !== analysisRunRef.current) throw new Error("Analysis cancelled");
         const positionIndex = nextPositionIndex;
         nextPositionIndex += 1;
         setAnalyzeState({
@@ -1469,6 +1494,7 @@ function GameReviewPage() {
       if (moveIndexes.length === 0) return;
 
       for (const moveIndex of moveIndexes) {
+        if (run !== analysisRunRef.current) throw new Error("Analysis cancelled");
         const move = moves[moveIndex];
         const label = moveLabel(move);
 
@@ -1527,7 +1553,7 @@ function GameReviewPage() {
           completedDeepMoves === moveIndexes.length
         ) {
           flushUpdates(
-            `Confirming ${completedDeepMoves}/${moveIndexes.length} moves at depth ${reviewStrength}`,
+            `Checking ${completedDeepMoves}/${moveIndexes.length} critical moves`,
             progress,
             totalUnits,
           );
@@ -1551,6 +1577,7 @@ function GameReviewPage() {
 
       console.log("[review] initializing Stockfish");
       await engine.init();
+      if (run !== analysisRunRef.current) return;
       console.log("[review] Stockfish initialized");
       setAnalyzeState({
         status: "running",
@@ -1560,6 +1587,7 @@ function GameReviewPage() {
       });
 
       await runFastScan();
+      if (run !== analysisRunRef.current) return;
       flushUpdates(
         `Quick scan complete - found ${suspiciousMoveIndexes.size} suspicious moves`,
         fens.length,
@@ -1589,13 +1617,14 @@ function GameReviewPage() {
         status: "running",
         progress,
         total: totalUnits,
-        message: `Confirming ${suspiciousMoves.length} moves at depth ${reviewStrength}`,
+        message: `Checking ${suspiciousMoves.length} critical moves`,
       });
 
       await deepenSuspiciousMoves(suspiciousMoves);
+      if (run !== analysisRunRef.current) return;
 
       flushUpdates(
-        `Confirmed ${suspiciousMoves.length}/${suspiciousMoves.length} moves at depth ${reviewStrength}`,
+        `Checked ${suspiciousMoves.length}/${suspiciousMoves.length} critical moves`,
         totalUnits,
         totalUnits,
       );
@@ -1609,9 +1638,10 @@ function GameReviewPage() {
             ? `Stockfish review complete - ${skippedPositions} position(s) skipped`
             : restartedEngines > 0
               ? `Stockfish review complete - recovered engine ${restartedEngines} time(s)`
-              : `Stockfish review complete - d${reviewStrength} review strength applied`,
+              : `Stockfish NNUE analysis complete`,
       });
     } catch (error) {
+      if (run !== analysisRunRef.current) return;
       flushUpdates("Stockfish analysis stopped", progress, totalUnits);
       console.error("[review] analysis failed", error);
       setAnalyzeState({
@@ -1624,154 +1654,7 @@ function GameReviewPage() {
       pendingPositionUpdates = {};
       pendingMoveUpdates = {};
       engine.dispose();
-    }
-  }
-
-  async function coachReviewGame() {
-    if (
-      !game ||
-      !moves.length ||
-      analyzeState.status === "running" ||
-      coachReviewState.status === "running"
-    ) {
-      return;
-    }
-
-    const targets = moves
-      .map((move, index) => ({ move, index }))
-      .filter(({ move }) => isPlayerMove(move, game.myColor));
-
-    if (targets.length === 0) {
-      setCoachReviewState({
-        status: "done",
-        progress: 0,
-        total: 0,
-        message: "No player moves found for coach review",
-      });
-      return;
-    }
-
-    const movetimeMs = coachReviewMoveTime(targets.length);
-    const timeoutMs = movetimeMs + COACH_REVIEW_TIMEOUT_BUFFER_MS;
-    const hardTimeoutMs = movetimeMs + COACH_REVIEW_HARD_TIMEOUT_BUFFER_MS;
-    const engine = new StockfishClient();
-    const startedAt = performance.now();
-
-    let progress = 0;
-    let pendingPositionUpdates: Record<number, PositionEvaluation> = {};
-    let pendingMoveUpdates: Record<number, MoveAnalysis> = {};
-    let pendingCoachInsights: Record<number, CoachInsight> = {};
-
-    function flushCoachUpdates(message: string, status: CoachReviewState["status"] = "running") {
-      const positionUpdates = pendingPositionUpdates;
-      const moveUpdates = pendingMoveUpdates;
-      const insightUpdates = pendingCoachInsights;
-
-      pendingPositionUpdates = {};
-      pendingMoveUpdates = {};
-      pendingCoachInsights = {};
-
-      if (Object.keys(positionUpdates).length > 0) {
-        setPositionAnalysis((current) => ({
-          ...current,
-          ...positionUpdates,
-        }));
-      }
-
-      if (Object.keys(moveUpdates).length > 0) {
-        setAnalysis((current) => ({
-          ...current,
-          ...moveUpdates,
-        }));
-      }
-
-      if (Object.keys(insightUpdates).length > 0) {
-        setCoachInsights((current) => ({
-          ...current,
-          ...insightUpdates,
-        }));
-      }
-
-      setCoachReviewState({
-        status,
-        progress,
-        total: targets.length,
-        message,
-      });
-    }
-
-    async function evaluateCoachPosition(fenToEvaluate: string, label: string) {
-      const cacheKey = `coach:m${movetimeMs}:${fenToEvaluate}`;
-      const cached = evaluationCacheRef.current.get(cacheKey);
-      if (cached) return cached;
-
-      try {
-        const rawEvaluation = await engine.evaluateFen(fenToEvaluate, {
-          movetimeMs,
-          timeoutMs,
-          hardTimeoutMs,
-        });
-        const positionEvaluation = toPositionEvaluation(fenToEvaluate, rawEvaluation);
-        evaluationCacheRef.current.set(cacheKey, positionEvaluation);
-        return positionEvaluation;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : `Coach review skipped ${label}`;
-        return emptyPositionEvaluation(fenToEvaluate, message);
-      }
-    }
-
-    setCoachInsights({});
-    setCoachReviewState({
-      status: "running",
-      progress: 0,
-      total: targets.length,
-      message: "Starting deep coach review",
-    });
-
-    try {
-      await engine.init();
-
-      for (const { move, index } of targets) {
-        setCoachReviewState({
-          status: "running",
-          progress,
-          total: targets.length,
-          message: `Deep reviewing ${moveLabel(move)} (${progress + 1}/${targets.length})`,
-        });
-
-        const before = await evaluateCoachPosition(move.before, `${moveLabel(move)} before`);
-        const after = await evaluateCoachPosition(move.after, `${moveLabel(move)} after`);
-        const moveAnalysis =
-          before.error || after.error
-            ? skippedMoveAnalysis(move, before, after)
-            : classifyMove({ move, best: before, after });
-
-        pendingPositionUpdates[index] = before;
-        pendingPositionUpdates[index + 1] = after;
-        pendingMoveUpdates[move.ply] = moveAnalysis;
-
-        const coachInsight = buildCoachInsight(move, moveAnalysis);
-        if (coachInsight) {
-          pendingCoachInsights[move.ply] = coachInsight;
-        }
-
-        progress += 1;
-        flushCoachUpdates(`Coach reviewed ${progress}/${targets.length} of your moves`);
-      }
-
-      const elapsedSeconds = Math.round((performance.now() - startedAt) / 1000);
-      flushCoachUpdates(
-        `Coach review complete - ${targets.length} of your moves checked in ${elapsedSeconds}s`,
-        "done",
-      );
-    } catch (error) {
-      console.error("[review] coach review failed", error);
-      flushCoachUpdates(error instanceof Error ? error.message : "Coach review failed", "error");
-    } finally {
-      pendingPositionUpdates = {};
-      pendingMoveUpdates = {};
-      pendingCoachInsights = {};
-      engine.dispose();
+      if (analysisEngineRef.current === engine) analysisEngineRef.current = null;
     }
   }
 
@@ -1798,136 +1681,130 @@ function GameReviewPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
-      <PageHeader
-        eyebrow="Engine review"
-        title={`${game.myColor === "white" ? game.whiteUser : game.blackUser} vs ${game.oppName}`}
-        description={`${game.opening} - ${game.eco} - ${formatDate(game.endTime)}`}
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setReviewPanelCollapsed((collapsed) => !collapsed)}
-              aria-expanded={!reviewPanelCollapsed}
-              aria-controls="game-review-panel"
-            >
-              {reviewPanelCollapsed ? (
-                <PanelRightOpen className="mr-1.5 h-4 w-4" />
-              ) : (
-                <PanelRightClose className="mr-1.5 h-4 w-4" />
-              )}
-              {reviewPanelCollapsed ? "Show panel" : "Hide panel"}
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <a href="/app/games">
-                <ArrowLeft className="mr-1.5 h-4 w-4" />
-                Games
-              </a>
-            </Button>
-            <Select
-              value={String(reviewStrength)}
-              onValueChange={(value) => setReviewStrength(Number(value))}
-              disabled={analyzeState.status === "running" || coachReviewState.status === "running"}
-            >
-              <SelectTrigger className="h-9 w-[150px] border-border/70 bg-background/60 font-mono text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {REVIEW_STRENGTH_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={String(option.value)}>
-                    {option.label} - {option.note}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              size="sm"
-              onClick={analyzeGame}
-              disabled={analyzeState.status === "running" || coachReviewState.status === "running"}
-              className="bg-accent text-accent-foreground hover:bg-accent/90"
-            >
-              {analyzeState.status === "running" ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <BrainCircuit className="mr-1.5 h-4 w-4" />
-              )}
-              Analyze d{reviewStrength}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={coachReviewGame}
-              disabled={analyzeState.status === "running" || coachReviewState.status === "running"}
-              className="border-accent/50 bg-accent/10 text-accent hover:bg-accent/15"
-            >
-              {coachReviewState.status === "running" ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <GraduationCap className="mr-1.5 h-4 w-4" />
-              )}
-              Coach Review
-            </Button>
-          </div>
-        }
-      />
-
-      <div className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-5">
-        {[
-          { label: "Result", value: game.result, className: resultClass(game.result) },
-          { label: "Color", value: game.myColor },
-          { label: "Opponent", value: `${game.oppName || "Unknown"} ${game.oppRating ?? ""}` },
-          { label: "Format", value: timeFormatLabel(game) },
-          { label: "Moves", value: String(game.movesCount) },
-        ].map((item) => (
-          <div key={item.label} className="bg-card p-4">
-            <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              {item.label}
-            </div>
-            <div className={`mt-1 truncate font-mono text-sm capitalize ${item.className ?? ""}`}>
-              {item.value}
-            </div>
-          </div>
-        ))}
-      </div>
+    <div className="mx-auto max-w-[1280px] px-4 pt-4 pb-[52px] sm:px-6 lg:px-8">
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold">
+            {game.whiteUser} — {game.blackUser}
+          </h1>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {game.opening} · {timeFormatLabel(game)} · {game.movesCount} moves ·{" "}
+            {formatDate(game.endTime)} ·{" "}
+            <span className={resultClass(game.result)}>{game.result}</span>
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setReviewPanelCollapsed((collapsed) => !collapsed)}
+            aria-expanded={!reviewPanelCollapsed}
+            aria-controls="game-review-panel"
+          >
+            {reviewPanelCollapsed ? (
+              <PanelRightOpen className="mr-1.5 h-4 w-4" />
+            ) : (
+              <PanelRightClose className="mr-1.5 h-4 w-4" />
+            )}
+            {reviewPanelCollapsed ? "Show panel" : "Hide panel"}
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <a href="/app/games">
+              <ArrowLeft className="mr-1.5 h-4 w-4" />
+              Games
+            </a>
+          </Button>
+          <Button
+            size="sm"
+            onClick={analyzeGame}
+            disabled={analyzeState.status === "running"}
+            className="bg-accent text-accent-foreground hover:bg-accent/90 transition-none"
+          >
+            {analyzeState.status === "running" ? "Analyzing…" : "Analyze game"}
+          </Button>
+        </div>
+      </header>
 
       <div
-        className={`grid grid-cols-1 items-start gap-5 ${reviewPanelCollapsed ? "" : "xl:grid-cols-[minmax(0,1.45fr)_minmax(350px,1fr)]"}`}
+        className={`grid grid-cols-1 items-start gap-5 ${reviewPanelCollapsed ? "" : "lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]"}`}
       >
         <div className="min-w-0 space-y-5">
-          <Card ref={boardPanelRef} className="border-border bg-card p-3 sm:p-4">
-            <div className="mb-4 flex items-center gap-3 rounded-md border border-border/50 bg-background/40 px-3 py-2">
-              <ZoomOut className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <Slider
-                value={[effectiveBoardZoom]}
-                min={68}
-                max={boardMaxZoom}
-                step={4}
-                onValueChange={handleBoardZoomChange}
-                aria-label="Board size"
-                className="min-w-0 flex-1"
-              />
-              <ZoomIn className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <Badge variant="outline" className="w-14 justify-center font-mono text-[10px]">
-                {effectiveBoardZoom}%
-              </Badge>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                onClick={flipBoard}
-                aria-label="Flip board"
-                title="Flip board"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="mx-auto" style={{ width: `${boardAreaPixelSize}px`, maxWidth: "100%" }}>
+          <section aria-label="Analysis board">
+            <div
+              ref={boardFrameRef}
+              className={`mx-auto scroll-mt-14 scroll-mb-9 ${boardWidthClass}`}
+              style={boardWidthStyle}
+            >
               <div className="flex items-stretch gap-2">
-                <div className="aspect-square min-w-0 flex-1">
-                  <ChessBoard options={boardOptions} />
+                <div className="relative aspect-square min-w-0 flex-1">
+                  <ChessBoard options={boardOptions} className="rounded-none shadow-none" />
+                  <button
+                    type="button"
+                    className="absolute bottom-0 right-0 z-10 grid h-5 w-5 touch-none select-none cursor-nwse-resize place-items-center border-0 bg-transparent p-0 text-muted-foreground/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.preventDefault();
+
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      boardResizeRef.current = {
+                        pointerId: event.pointerId,
+                        x: event.clientX,
+                        y: event.clientY,
+                        width: boardFrameRef.current?.getBoundingClientRect().width ?? 400,
+                      };
+                    }}
+                    onPointerMove={(event) => {
+                      const drag = boardResizeRef.current;
+                      if (!drag || drag.pointerId !== event.pointerId) return;
+                      resizeBoard(drag.width + event.clientX - drag.x + event.clientY - drag.y);
+                    }}
+                    onPointerUp={() => {
+                      boardResizeRef.current = null;
+                      centerReviewBoard(boardFrameRef.current);
+                    }}
+                    onPointerCancel={() => {
+                      boardResizeRef.current = null;
+                    }}
+                    onLostPointerCapture={() => {
+                      boardResizeRef.current = null;
+                    }}
+                    onKeyDown={(event) => {
+                      const direction =
+                        event.key === "ArrowRight" || event.key === "ArrowDown"
+                          ? 1
+                          : event.key === "ArrowLeft" || event.key === "ArrowUp"
+                            ? -1
+                            : 0;
+                      if (direction) {
+                        event.preventDefault();
+                        resizeBoard(
+                          (boardFrameRef.current?.getBoundingClientRect().width ?? 400) +
+                            direction * 20,
+                        );
+                      } else if (event.key === "Home") {
+                        event.preventDefault();
+                        boardScrollIntentRef.current = true;
+                        setBoardWidth(null);
+                        centerReviewBoard(boardFrameRef.current);
+                      }
+                    }}
+                    aria-label="Resize board"
+                    title="Drag inward or outward to resize the board."
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M5 19 19 5M11 19l8-8M17 19l2-2" />
+                    </svg>
+                  </button>
                 </div>
                 <EvaluationBar
                   whiteCp={displayedEvalWhite}
@@ -1938,18 +1815,21 @@ function GameReviewPage() {
               </div>
             </div>
 
-            <div className="mt-5 flex items-center gap-3">
+            <div
+              className={`mx-auto mt-3 flex items-center gap-2 ${boardWidthClass}`}
+              style={boardWidthStyle}
+            >
               <Button
                 variant="outline"
                 size="icon"
-                className="h-9 w-9"
+                className="h-9 w-9 transition-none"
                 onClick={() => shift(-1)}
                 disabled={variationMoves.length === 0 && selectedPly < 0}
                 aria-label="Previous move"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <div className="min-w-0 flex-1 rounded-md border border-border/50 bg-background/60 px-3 py-2">
+              <div className="min-w-0 flex-1 px-3 py-1">
                 <div className="truncate font-mono text-xs">
                   {displayedMove ? boardMoveLabel(displayedMove) : "Starting position"}
                 </div>
@@ -1971,129 +1851,77 @@ function GameReviewPage() {
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 transition-none"
+                onClick={flipBoard}
+                aria-label="Flip board"
+                title="Flip board"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </Button>
             </div>
-          </Card>
+          </section>
         </div>
 
-        <Card
+        <aside
+          aria-label="Game annotations"
           id="game-review-panel"
           hidden={reviewPanelCollapsed}
-          className={`min-w-0 self-start border-border bg-card ${reviewPanelCollapsed ? "hidden" : ""}`}
+          className={`min-w-0 self-start ${reviewPanelCollapsed ? "hidden" : ""}`}
         >
-          <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-            <div>
-              <h2 className="font-display text-xl font-semibold">Annotated game</h2>
-              <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                <span className={`h-1.5 w-1.5 rounded-full ${resultDot(game.result)}`} />
-                <span>{game.whiteUser}</span>
-                <CircleStop className="h-3 w-3" />
-                <span>{game.blackUser}</span>
-              </div>
-            </div>
-            {Object.keys(analysis).length > 0 && (
-              <Badge className="border-accent/30 bg-accent/15 font-mono text-[10px] uppercase tracking-widest text-accent hover:bg-accent/15">
-                Engine
-              </Badge>
-            )}
-          </div>
-
-          <div className="border-b border-border/60 bg-background/20 px-4 py-2">
-            <div className="flex items-center justify-between gap-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              <span>Move window</span>
-              <span>Scroll to browse</span>
-            </div>
-          </div>
-
+          <h2 className="mb-2 text-sm font-semibold">Moves</h2>
           <div
             ref={notationRef}
-            className="h-[20rem] overflow-y-auto overscroll-contain p-3 xl:h-[26rem]"
+            className="overflow-y-auto overscroll-contain border-y border-border"
+            style={{ height: Math.max(180, Math.min(420, boardWidthStyle.width - 140)) }}
           >
-            <div className="mb-2 grid grid-cols-[2.75rem_1fr_1fr] gap-2 px-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              <span>#</span>
-              <span>White</span>
-              <span>Black</span>
-            </div>
-            <div className="space-y-1">
-              {movePairs.map((pair) => (
-                <div
-                  key={pair.moveNumber}
-                  className="grid grid-cols-[2.75rem_1fr_1fr] items-stretch gap-2 rounded-md px-2 py-1 hover:bg-muted/20"
-                >
-                  <div className="pt-2 font-mono text-xs text-muted-foreground">
-                    {pair.moveNumber}.
-                  </div>
-                  <MoveCell
-                    move={pair.white}
-                    analysis={pair.white ? analysis[pair.white.ply] : undefined}
-                    active={selectedPly === pair.white?.ply}
-                    onClick={() => pair.white && pickMainline(pair.white.ply)}
-                    data-ply={pair.white?.ply}
-                  />
-                  <MoveCell
-                    move={pair.black}
-                    analysis={pair.black ? analysis[pair.black.ply] : undefined}
-                    active={selectedPly === pair.black?.ply}
-                    onClick={() => pair.black && pickMainline(pair.black.ply)}
-                    data-ply={pair.black?.ply}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-4 border-t border-border/60 p-4">
-            <div className={`rounded-md border p-3 ${annotationClass(selectedAnnotation, true)}`}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4" />
-                    <span className="font-display text-lg font-semibold">
-                      {annotationLabel(selectedAnnotation)}
-                    </span>
-                  </div>
-                  <div className="mt-1 truncate font-mono text-xs">
-                    {displayedMove ? boardMoveLabel(displayedMove) : "Start"}
-                  </div>
-                </div>
-                <div className="shrink-0 text-right font-mono text-xs">
-                  <div>
-                    {!latestVariationMove && selectedAnalysis
-                      ? formatEval(selectedAnalysis.evalAfter)
-                      : "N/A"}
-                  </div>
-                  <div className="mt-1 opacity-70">
-                    {latestVariationMove || selectedAnalysis?.loss == null
-                      ? "0 cp"
-                      : `${Math.round(selectedAnalysis.loss)} cp`}
-                  </div>
-                </div>
+            {movePairs.map((pair) => (
+              <div
+                key={pair.moveNumber}
+                className="grid grid-cols-[2.25rem_1fr_1fr] items-center even:bg-muted/35"
+              >
+                <div className="pl-2 text-xs text-muted-foreground">{pair.moveNumber}.</div>
+                <MoveCell
+                  move={pair.white}
+                  analysis={pair.white ? analysis[pair.white.ply] : undefined}
+                  active={selectedPly === pair.white?.ply}
+                  onClick={() => pair.white && pickMainline(pair.white.ply)}
+                  data-ply={pair.white?.ply}
+                />
+                <MoveCell
+                  move={pair.black}
+                  analysis={pair.black ? analysis[pair.black.ply] : undefined}
+                  active={selectedPly === pair.black?.ply}
+                  onClick={() => pair.black && pickMainline(pair.black.ply)}
+                  data-ply={pair.black?.ply}
+                />
               </div>
-              {!latestVariationMove && selectedAnalysis?.bestSan && (
-                <div className="mt-3 rounded border border-background/30 bg-background/20 px-3 py-2 font-mono text-xs">
-                  Best move: {selectedAnalysis.bestSan}
-                </div>
-              )}
-              {!latestVariationMove && selectedIsPlayerMove && selectedCoachInsight && (
-                <div className="mt-3 rounded border border-accent/30 bg-accent/[0.06] px-3 py-2 text-sm">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2 font-display font-semibold text-accent">
-                      <MessageSquareText className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{selectedCoachInsight.title}</span>
-                    </div>
-                    <Badge variant="outline" className="shrink-0 font-mono text-[10px] uppercase">
-                      d{selectedCoachInsight.depth}
-                    </Badge>
-                  </div>
-                  <p className="text-sm leading-relaxed text-foreground">
-                    {selectedCoachInsight.explanation}
-                  </p>
-                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                    {selectedCoachInsight.advice}
-                  </p>
-                </div>
-              )}
+            ))}
+          </div>
+          <div className="space-y-3 py-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span>{displayedMove ? boardMoveLabel(displayedMove) : "Starting position"}</span>
+              <span className="text-muted-foreground">
+                {selectedAnalysis ? annotationLabel(selectedAnnotation) : ""}
+              </span>
             </div>
-
+            {!latestVariationMove && selectedAnalysis?.bestSan && (
+              <p className="text-xs">
+                Best move: <strong>{selectedAnalysis.bestSan}</strong>
+              </p>
+            )}
+            {!latestVariationMove && selectedIsPlayerMove && selectedCoachInsight && (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground">Why this move?</summary>
+                <p className="mt-2 leading-relaxed">{selectedCoachInsight.explanation}</p>
+                <p className="mt-2 leading-relaxed text-muted-foreground">
+                  {selectedCoachInsight.advice}
+                </p>
+              </details>
+            )}
             <VariationLine
               moves={variationMoves}
               origin={selectedMove ? moveLabel(selectedMove) : "start"}
@@ -2101,65 +1929,40 @@ function GameReviewPage() {
               onDeleteFrom={deleteVariationFrom}
               onDeleteAll={resetVariation}
             />
-
-            <div className="rounded-md border border-border/60 bg-background/35 p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                    Stockfish WASM
-                  </div>
-                  <div className="mt-1 truncate text-sm">{analyzeState.message}</div>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant="outline" className="font-mono text-[10px] uppercase">
-                    d{reviewStrength}
-                  </Badge>
-                  <Badge variant="outline" className="font-mono text-[10px] uppercase">
-                    {progressPct}%
-                  </Badge>
-                </div>
+            <div
+              className="border-t border-border pt-3 text-xs text-muted-foreground"
+              role="status"
+            >
+              <div className="flex justify-between gap-2">
+                <span>
+                  {analyzeState.status === "idle"
+                    ? "Click Analyze game to review your moves."
+                    : analyzeState.message}
+                </span>
+                {analyzeState.status === "running" && <span>{progressPct}%</span>}
               </div>
-              <Progress value={progressPct} className="h-2" />
-              {coachReviewState.status !== "idle" && (
-                <div className="mt-4 rounded-md border border-accent/25 bg-accent/[0.04] p-3">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2 text-sm">
-                      {coachReviewState.status === "running" ? (
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
-                      ) : (
-                        <GraduationCap className="h-4 w-4 shrink-0 text-accent" />
-                      )}
-                      <span className="truncate">{coachReviewState.message}</span>
-                    </div>
-                    <Badge variant="outline" className="shrink-0 font-mono text-[10px] uppercase">
-                      {coachProgressPct}%
-                    </Badge>
-                  </div>
-                  <Progress value={coachProgressPct} className="h-1.5" />
+              {analyzeState.status === "running" && (
+                <div
+                  className="mt-2 h-1 bg-muted"
+                  role="progressbar"
+                  aria-label="Game analysis"
+                  aria-valuenow={progressPct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div className="h-full bg-accent" style={{ width: `${progressPct}%` }} />
                 </div>
               )}
-              <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
-                {[
-                  ["brilliancy", summary.brilliancy],
-                  ["good", summary.good],
-                  ["inaccuracy", summary.inaccuracy],
-                  ["mistake", summary.mistake],
-                  ["blunder", summary.blunder],
-                ].map(([kind, count]) => (
-                  <div
-                    key={kind}
-                    className={`rounded-md border px-2 py-2 ${annotationClass(kind as AnnotationKind)}`}
-                  >
-                    <div className="font-display text-lg font-semibold">{count}</div>
-                    <div className="truncate font-mono text-[9px] uppercase">
-                      {annotationLabel(kind as AnnotationKind)}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {Object.keys(analysis).length > 0 && (
+                <p className="mt-2">
+                  {summary.inaccuracy} inaccuracies · {summary.mistake} mistakes · {summary.blunder}{" "}
+                  blunders
+                </p>
+              )}
+              <p className="mt-2">Stockfish NNUE · Local analysis</p>
             </div>
           </div>
-        </Card>
+        </aside>
       </div>
     </div>
   );
