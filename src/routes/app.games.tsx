@@ -1,5 +1,5 @@
 import { timeFormatLabel } from "@/lib/chess/time-format";
-﻿import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +54,7 @@ function exportPgn(games: StoredGame[]) {
 }
 
 function GamesPage() {
+  const navigate = useNavigate();
   const conn = useConnection();
   const games = useGames();
   const [filter, setFilter] = useState<FilterValue>("all");
@@ -229,7 +230,28 @@ function GamesPage() {
               {visibleGames.map((game) => (
                 <tr
                   key={game.id}
-                  className="group border-b border-border/60 transition-colors last:border-0 hover:bg-background/70"
+                  tabIndex={0}
+                  aria-label={`Open game against ${game.oppName || "unknown opponent"}`}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("a, button")) return;
+                    if (window.getSelection()?.toString()) return;
+                    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+                      window.open(
+                        `/app/games/${encodeURIComponent(game.id)}`,
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
+                    } else {
+                      void navigate({ to: "/app/games/$gameId", params: { gameId: game.id } });
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget || !["Enter", " "].includes(event.key))
+                      return;
+                    event.preventDefault();
+                    void navigate({ to: "/app/games/$gameId", params: { gameId: game.id } });
+                  }}
+                  className="group cursor-pointer focus-visible:outline-2 focus-visible:outline-accent border-b border-border/60 transition-colors last:border-0 hover:bg-background/70"
                 >
                   <td className="whitespace-nowrap px-5 py-4">
                     <div className="flex flex-col items-start gap-1.5">

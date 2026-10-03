@@ -106,46 +106,7 @@ const EVAL_BAR_DEBOUNCE_MS = 120;
 const EVAL_BAR_MOVETIME_MS = 180;
 const EVAL_BAR_TIMEOUT_MS = 1400;
 const EVAL_BAR_HARD_TIMEOUT_MS = 2400;
-const FAST_SCAN_MOVETIME_MS = 160;
-const FAST_SCAN_TIMEOUT_MS = 800;
-const FAST_SCAN_HARD_TIMEOUT_MS = 1400;
-const ANALYSIS_UI_UPDATE_INTERVAL = 5;
-const DEEPEN_UI_UPDATE_INTERVAL = 1;
-const OPENING_PLIES_TO_SKIP_FOR_DEEPENING = 8;
-const MAX_DEEPENED_MOVES = 8;
-const ANALYSIS_RERUN_RESET_DELAY_MS = 180;
 const BEST_MOVE_ARROW_COLOR = "oklch(0.78 0.16 165 / 0.9)";
-
-const DEEPEN_MOVETIME_BY_DEPTH: Record<number, number> = {
-  8: 400,
-  10: 900,
-  12: 1600,
-  14: 2500,
-};
-
-const DEEPEN_TIMEOUT_BY_DEPTH: Record<number, number> = {
-  8: 1500,
-  10: 3000,
-  12: 5000,
-  14: 7500,
-};
-
-const DEEPEN_HARD_TIMEOUT_BY_DEPTH: Record<number, number> = {
-  8: 2500,
-  10: 4500,
-  12: 7000,
-  14: 10000,
-};
-
-function waitForAnalysisResetPaint() {
-  if (typeof window === "undefined") return Promise.resolve();
-
-  return new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.setTimeout(resolve, ANALYSIS_RERUN_RESET_DELAY_MS);
-    });
-  });
-}
 
 function formatDate(ts: number) {
   return new Date(ts * 1000).toLocaleDateString(undefined, {
@@ -871,7 +832,7 @@ function GameReviewPage() {
     return () => cancelAnimationFrame(frame);
   }, [boardWidth]);
   const [boardOrientation, setBoardOrientation] = useState<Color>(game?.myColor ?? "white");
-  const reviewStrength = 10;
+  const reviewDepth = 24;
   const [analysisEnabled, setAnalysisEnabled] = useState(false);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [markedSquares, setMarkedSquares] = useState<string[]>([]);
@@ -1241,419 +1202,103 @@ function GameReviewPage() {
     ],
   );
 
+  function stopAnalysis() {
+    setAnalysisEnabled(false);
+    liveEvaluationEngineRef.current?.dispose();
+    liveEvaluationEngineRef.current = null;
+    analysisRunRef.current += 1;
+    analysisEngineRef.current?.dispose();
+    analysisEngineRef.current = null;
+    setAnalyzeState((current) => ({
+      ...current,
+      status: "idle",
+      message: "Analysis stopped. Completed positions are kept.",
+    }));
+  }
+
   async function analyzeGame() {
     if (!moves.length || analyzeState.status === "running" || analysisEngineRef.current) return;
     const run = ++analysisRunRef.current;
-
     setAnalysisEnabled(true);
     setReviewPanelCollapsed(false);
     liveEvaluationEngineRef.current?.dispose();
     liveEvaluationEngineRef.current = null;
-
-    const hadVisibleAnalysis =
-      Object.keys(analysis).length > 0 || Object.keys(positionAnalysis).length > 0;
     const fens = [moves[0].before, ...moves.map((move) => move.after)];
     const evaluations: PositionEvaluation[] = [];
-    const fastClassifiedMoves = new Set<number>();
-    const suspiciousMoveIndexes = new Set<number>();
-    const deepTargetScores = new Map<number, number>();
-
-    let pendingPositionUpdates: Record<number, PositionEvaluation> = {};
-    let pendingMoveUpdates: Record<number, MoveAnalysis> = {};
-    let engine = new StockfishClient();
-    analysisEngineRef.current = engine;
-
-    let nextPositionIndex = 0;
-    let completedScanPositions = 0;
-    let completedDeepMoves = 0;
-    let skippedPositions = 0;
-    let restartedEngines = 0;
-
+    let engine: StockfishClient | null = null;
     let progress = 0;
-    let totalUnits = fens.length;
-
-    function queuePositionUpdate(positionIndex: number, positionEvaluation: PositionEvaluation) {
-      pendingPositionUpdates[positionIndex] = positionEvaluation;
-    }
-
-    function queueMoveUpdate(moveIndex: number, moveAnalysis: MoveAnalysis) {
-      const move = moves[moveIndex];
-      if (!move) return;
-
-      pendingMoveUpdates[move.ply] = moveAnalysis;
-    }
-
-    function flushUpdates(message: string, nextProgress = progress, nextTotal = totalUnits) {
-      if (run !== analysisRunRef.current) return;
-      const positionUpdates = pendingPositionUpdates;
-      const moveUpdates = pendingMoveUpdates;
-
-      pendingPositionUpdates = {};
-      pendingMoveUpdates = {};
-
-      if (Object.keys(positionUpdates).length > 0) {
-        setPositionAnalysis((current) => ({
-          ...current,
-          ...positionUpdates,
-        }));
-      }
-
-      if (Object.keys(moveUpdates).length > 0) {
-        setAnalysis((current) => ({
-          ...current,
-          ...moveUpdates,
-        }));
-      }
-
-      setAnalyzeState({
-        status: "running",
-        progress: nextProgress,
-        total: nextTotal,
-        message,
-      });
-    }
-
-    async function restartEngine() {
-      restartedEngines += 1;
-
-      try {
-        engine.dispose();
-      } catch {
-        // Worker may already be gone.
-      }
-
-      engine = new StockfishClient();
-      analysisEngineRef.current = engine;
-      await engine.init();
-    }
-
-    async function evaluateCached(
-      fenToEvaluate: string,
-      depth: number,
-      timeoutMs: number,
-      label: string,
-      movetimeMs?: number,
-      hardTimeoutMs?: number,
-    ) {
-      if (run !== analysisRunRef.current) throw new Error("Analysis cancelled");
-      const cacheKey = `${depth > 0 ? `d${depth}` : `m${movetimeMs ?? 0}`}:${fenToEvaluate}`;
-      const cached = evaluationCacheRef.current.get(cacheKey);
-
-      if (cached) {
-        return cached;
-      }
-
-      try {
-        const rawEvaluation = await engine.evaluateFen(fenToEvaluate, {
-          depth: depth > 0 ? depth : undefined,
-          movetimeMs,
-          timeoutMs,
-          hardTimeoutMs,
-        });
-
-        const positionEvaluation = toPositionEvaluation(fenToEvaluate, rawEvaluation);
-
-        evaluationCacheRef.current.set(cacheKey, positionEvaluation);
-        return positionEvaluation;
-      } catch (error) {
-        skippedPositions += 1;
-        const message =
-          error instanceof Error ? error.message : `Stockfish skipped ${label} at depth ${depth}`;
-        console.warn("[review] skipped position", {
-          label,
-          depth,
-          movetimeMs,
-          timeoutMs,
-          hardTimeoutMs,
-          message,
-        });
-        return emptyPositionEvaluation(fenToEvaluate, message);
-      }
-    }
-
-    function scoreDeepTarget(moveIndex: number, moveAnalysis: MoveAnalysis) {
-      const move = moves[moveIndex];
-      if (!move || moveIndex < OPENING_PLIES_TO_SKIP_FOR_DEEPENING) return 0;
-      if (moveAnalysis.engineError) return 0;
-
-      const bestMove = moveAnalysis.bestMove?.toLowerCase();
-      const isDeviation = Boolean(bestMove && move.uci !== bestMove);
-      const loss = moveAnalysis.loss ?? 0;
-      let score = loss + (isDeviation ? 35 : 0);
-
-      if (moveAnalysis.annotation === "blunder") score += 400;
-      else if (moveAnalysis.annotation === "mistake") score += 250;
-      else if (moveAnalysis.annotation === "inaccuracy") score += 120;
-
-      return score;
-    }
-
-    function publishFastMoveAnalysis(moveIndex: number) {
-      if (moveIndex < 0 || moveIndex >= moves.length) return;
-      if (fastClassifiedMoves.has(moveIndex)) return;
-
-      const before = evaluations[moveIndex];
-      const after = evaluations[moveIndex + 1];
-
-      if (!before || !after) return;
-
-      const move = moves[moveIndex];
-
-      const moveAnalysis =
-        before.error || after.error
-          ? skippedMoveAnalysis(move, before, after)
-          : classifyMove({
-              move,
-              best: before,
-              after,
-            });
-
-      fastClassifiedMoves.add(moveIndex);
-
-      if (
-        moveIndex >= OPENING_PLIES_TO_SKIP_FOR_DEEPENING &&
-        isSuspiciousMove(move, moveAnalysis)
-      ) {
-        suspiciousMoveIndexes.add(moveIndex);
-      }
-
-      const targetScore = scoreDeepTarget(moveIndex, moveAnalysis);
-      if (targetScore > 0) deepTargetScores.set(moveIndex, targetScore);
-
-      queueMoveUpdate(moveIndex, moveAnalysis);
-    }
-
-    function publishFastPosition(positionIndex: number, positionEvaluation: PositionEvaluation) {
-      evaluations[positionIndex] = positionEvaluation;
-      queuePositionUpdate(positionIndex, positionEvaluation);
-
-      publishFastMoveAnalysis(positionIndex - 1);
-      publishFastMoveAnalysis(positionIndex);
-    }
-
-    function buildDeepTargets() {
-      const selected = new Set<number>();
-
-      const scoredTargets = Array.from(deepTargetScores.entries())
-        .filter(([moveIndex, score]) => {
-          if (moveIndex < OPENING_PLIES_TO_SKIP_FOR_DEEPENING) return false;
-          return suspiciousMoveIndexes.has(moveIndex) || score >= 120;
-        })
-        .sort((a, b) => b[1] - a[1]);
-
-      for (const [moveIndex] of scoredTargets) {
-        selected.add(moveIndex);
-        if (selected.size >= MAX_DEEPENED_MOVES) break;
-      }
-
-      return Array.from(selected).sort((a, b) => a - b);
-    }
-
-    async function runFastScan() {
-      while (nextPositionIndex < fens.length) {
-        if (run !== analysisRunRef.current) throw new Error("Analysis cancelled");
-        const positionIndex = nextPositionIndex;
-        nextPositionIndex += 1;
-        setAnalyzeState({
-          status: "running",
-          progress,
-          total: totalUnits,
-          message: `Scanning position ${positionIndex + 1}/${fens.length}`,
-        });
-        const move = moves[positionIndex - 1] ?? null;
-        const label = move ? moveLabel(move) : "starting position";
-
-        const positionEvaluation = await evaluateCached(
-          fens[positionIndex],
-          0,
-          FAST_SCAN_TIMEOUT_MS,
-          label,
-          FAST_SCAN_MOVETIME_MS,
-          FAST_SCAN_HARD_TIMEOUT_MS,
-        );
-
-        publishFastPosition(positionIndex, positionEvaluation);
-
-        completedScanPositions += 1;
-        progress = completedScanPositions;
-
-        if (
-          completedScanPositions % ANALYSIS_UI_UPDATE_INTERVAL === 0 ||
-          completedScanPositions === fens.length
-        ) {
-          flushUpdates(
-            `Quick scan ${completedScanPositions}/${fens.length} positions`,
-            progress,
-            totalUnits,
-          );
-        }
-      }
-    }
-
-    async function deepenSuspiciousMoves(moveIndexes: number[]) {
-      if (moveIndexes.length === 0) return;
-
-      for (const moveIndex of moveIndexes) {
-        if (run !== analysisRunRef.current) throw new Error("Analysis cancelled");
-        const move = moves[moveIndex];
-        const label = moveLabel(move);
-
-        const before = await evaluateCached(
-          move.before,
-          0,
-          DEEPEN_TIMEOUT_BY_DEPTH[reviewStrength] ?? 1800,
-          `${label} before`,
-          DEEPEN_MOVETIME_BY_DEPTH[reviewStrength] ?? 450,
-          DEEPEN_HARD_TIMEOUT_BY_DEPTH[reviewStrength] ?? 2600,
-        );
-
-        evaluations[moveIndex] = before;
-        queuePositionUpdate(moveIndex, before);
-
-        const fastAfter =
-          evaluations[moveIndex + 1] ??
-          emptyPositionEvaluation(move.after, "Missing fast after-position evaluation");
-
-        let moveAnalysis: MoveAnalysis;
-
-        if (before.error) {
-          moveAnalysis = skippedMoveAnalysis(move, before, fastAfter);
-        } else if (bestMoveMatches(move, before)) {
-          moveAnalysis = exactBestMoveAnalysis(move, before, fastAfter);
-        } else {
-          const after = await evaluateCached(
-            move.after,
-            0,
-            DEEPEN_TIMEOUT_BY_DEPTH[reviewStrength] ?? 1800,
-            `${label} after`,
-            DEEPEN_MOVETIME_BY_DEPTH[reviewStrength] ?? 450,
-            DEEPEN_HARD_TIMEOUT_BY_DEPTH[reviewStrength] ?? 2600,
-          );
-
-          evaluations[moveIndex + 1] = after;
-          queuePositionUpdate(moveIndex + 1, after);
-
-          moveAnalysis =
-            before.error || after.error
-              ? skippedMoveAnalysis(move, before, after)
-              : classifyMove({
-                  move,
-                  best: before,
-                  after,
-                });
-        }
-
-        queueMoveUpdate(moveIndex, moveAnalysis);
-
-        completedDeepMoves += 1;
-        progress = fens.length + completedDeepMoves;
-
-        if (
-          completedDeepMoves % DEEPEN_UI_UPDATE_INTERVAL === 0 ||
-          completedDeepMoves === moveIndexes.length
-        ) {
-          flushUpdates(
-            `Checking ${completedDeepMoves}/${moveIndexes.length} critical moves`,
-            progress,
-            totalUnits,
-          );
-        }
-      }
-    }
-
     setAnalysis({});
     setPositionAnalysis({});
     setAnalyzeState({
       status: "running",
       progress: 0,
       total: fens.length,
-      message: hadVisibleAnalysis ? "Resetting move highlights" : "Starting Stockfish WASM worker",
+      message: "Loading Stockfish NNUE",
     });
-
     try {
-      if (hadVisibleAnalysis) {
-        await waitForAnalysisResetPaint();
-      }
-
-      console.log("[review] initializing Stockfish");
+      engine = new StockfishClient();
+      analysisEngineRef.current = engine;
       await engine.init();
       if (run !== analysisRunRef.current) return;
-      console.log("[review] Stockfish initialized");
-      setAnalyzeState({
-        status: "running",
-        progress: 0,
-        total: fens.length,
-        message: `Engine ready - quick scan ${fens.length} positions`,
-      });
-
-      await runFastScan();
-      if (run !== analysisRunRef.current) return;
-      flushUpdates(
-        `Quick scan complete - found ${suspiciousMoveIndexes.size} suspicious moves`,
-        fens.length,
-        fens.length,
-      );
-
-      const suspiciousMoves = buildDeepTargets();
-
-      if (suspiciousMoves.length === 0) {
+      for (let index = 0; index < fens.length; index++) {
+        if (run !== analysisRunRef.current) return;
+        const label = index === 0 ? "Starting position" : moveLabel(moves[index - 1]);
+        const key = `d${reviewDepth}:${fens[index]}`;
+        let evaluation = evaluationCacheRef.current.get(key);
+        if (!evaluation || evaluation.depth < reviewDepth || evaluation.error) {
+          const raw = await engine.evaluateFen(fens[index], {
+            depth: reviewDepth,
+            timeoutMs: null,
+            hardTimeoutMs: null,
+            onInfo: (info) => {
+              if (run !== analysisRunRef.current) return;
+              setAnalyzeState({
+                status: "running",
+                progress,
+                total: fens.length,
+                message: `${label} · depth ${info.depth}/${reviewDepth} · position ${index + 1}/${fens.length}`,
+              });
+            },
+          });
+          if (run !== analysisRunRef.current) return;
+          evaluation = toPositionEvaluation(fens[index], raw);
+          evaluationCacheRef.current.set(key, evaluation);
+        }
+        evaluations[index] = evaluation;
+        setPositionAnalysis((current) => ({ ...current, [index]: evaluation! }));
+        if (index > 0) {
+          const move = moves[index - 1];
+          const moveAnalysis = classifyMove({
+            move,
+            best: evaluations[index - 1],
+            after: evaluation,
+          });
+          setAnalysis((current) => ({ ...current, [move.ply]: moveAnalysis }));
+        }
+        progress = index + 1;
         setAnalyzeState({
-          status: "done",
-          progress: fens.length,
+          status: "running",
+          progress,
           total: fens.length,
-          message:
-            skippedPositions > 0
-              ? `Stockfish quick scan complete - ${skippedPositions} position(s) skipped`
-              : "Stockfish quick scan complete - no suspicious moves found",
+          message: `Analyzed ${progress}/${fens.length} positions · target depth ${reviewDepth}`,
         });
-
-        return;
       }
-
-      totalUnits = fens.length + suspiciousMoves.length;
-      progress = fens.length;
-
-      setAnalyzeState({
-        status: "running",
-        progress,
-        total: totalUnits,
-        message: `Checking ${suspiciousMoves.length} critical moves`,
-      });
-
-      await deepenSuspiciousMoves(suspiciousMoves);
-      if (run !== analysisRunRef.current) return;
-
-      flushUpdates(
-        `Checked ${suspiciousMoves.length}/${suspiciousMoves.length} critical moves`,
-        totalUnits,
-        totalUnits,
-      );
-
       setAnalyzeState({
         status: "done",
-        progress: totalUnits,
-        total: totalUnits,
-        message:
-          skippedPositions > 0
-            ? `Stockfish review complete - ${skippedPositions} position(s) skipped`
-            : restartedEngines > 0
-              ? `Stockfish review complete - recovered engine ${restartedEngines} time(s)`
-              : `Stockfish NNUE analysis complete`,
+        progress,
+        total: fens.length,
+        message: `Analysis complete · all ${fens.length} positions analyzed · target depth ${reviewDepth}`,
       });
     } catch (error) {
       if (run !== analysisRunRef.current) return;
-      flushUpdates("Stockfish analysis stopped", progress, totalUnits);
-      console.error("[review] analysis failed", error);
       setAnalyzeState({
         status: "error",
         progress,
-        total: totalUnits,
+        total: fens.length,
         message: error instanceof Error ? error.message : "Stockfish analysis failed",
       });
     } finally {
-      pendingPositionUpdates = {};
-      pendingMoveUpdates = {};
-      engine.dispose();
+      engine?.dispose();
       if (analysisEngineRef.current === engine) analysisEngineRef.current = null;
     }
   }
@@ -1717,11 +1362,10 @@ function GameReviewPage() {
           </Button>
           <Button
             size="sm"
-            onClick={analyzeGame}
-            disabled={analyzeState.status === "running"}
+            onClick={analyzeState.status === "running" ? stopAnalysis : analyzeGame}
             className="bg-accent text-accent-foreground hover:bg-accent/90 transition-none"
           >
-            {analyzeState.status === "running" ? "Analyzing…" : "Analyze game"}
+            {analyzeState.status === "running" ? "Stop analysis" : "Analyze game"}
           </Button>
         </div>
       </header>
@@ -1936,7 +1580,7 @@ function GameReviewPage() {
               <div className="flex justify-between gap-2">
                 <span>
                   {analyzeState.status === "idle"
-                    ? "Click Analyze game to review your moves."
+                    ? analyzeState.message || "Click Analyze game to review your moves."
                     : analyzeState.message}
                 </span>
                 {analyzeState.status === "running" && <span>{progressPct}%</span>}

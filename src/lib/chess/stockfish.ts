@@ -16,8 +16,9 @@ function debugStockfish(...args: unknown[]) {
 type EvaluateFenOptions = {
   movetimeMs?: number;
   depth?: number;
-  timeoutMs?: number;
-  hardTimeoutMs?: number;
+  timeoutMs?: number | null;
+  hardTimeoutMs?: number | null;
+  onInfo?: (evaluation: EngineEvaluation) => void;
 };
 
 function parseInfoLine(line: string, current: EngineEvaluation): EngineEvaluation {
@@ -193,7 +194,7 @@ export class StockfishClient {
 
   private async evaluateFenNow(
     fen: string,
-    { movetimeMs = 220, depth, timeoutMs, hardTimeoutMs }: EvaluateFenOptions = {},
+    { movetimeMs = 220, depth, timeoutMs, hardTimeoutMs, onInfo }: EvaluateFenOptions = {},
   ): Promise<EngineEvaluation> {
     await this.init();
     const startedAt = performance.now();
@@ -215,10 +216,16 @@ export class StockfishClient {
       let stopped = false;
       let resolved = false;
 
-      const softLimit = timeoutMs ?? (depth ? 30000 : Math.max(1000, movetimeMs + 1000));
-
-      const fallbackHardLimit = softLimit + Math.min(3000, Math.max(1200, softLimit));
-      const hardLimit = Math.max(hardTimeoutMs ?? fallbackHardLimit, softLimit + 250);
+      const softLimit =
+        timeoutMs === null
+          ? null
+          : (timeoutMs ?? (depth ? 30000 : Math.max(1000, movetimeMs + 1000)));
+      const fallbackHardLimit =
+        softLimit == null ? null : softLimit + Math.min(3000, Math.max(1200, softLimit));
+      const hardLimit =
+        hardTimeoutMs === null || (softLimit == null && hardTimeoutMs == null)
+          ? null
+          : Math.max(hardTimeoutMs ?? fallbackHardLimit ?? 30000, (softLimit ?? 0) + 250);
 
       const cleanup = () => {
         window.clearTimeout(softTimer);
@@ -238,22 +245,29 @@ export class StockfishClient {
         }
       };
 
-      const softTimer = window.setTimeout(() => {
-        requestStop();
-      }, softLimit);
+      const softTimer =
+        softLimit == null
+          ? undefined
+          : window.setTimeout(() => {
+              requestStop();
+            }, softLimit);
 
-      const hardTimer = window.setTimeout(() => {
-        if (resolved) return;
+      const hardTimer =
+        hardLimit == null
+          ? undefined
+          : window.setTimeout(() => {
+              if (resolved) return;
 
-        requestStop();
-        resolved = true;
-        cleanup();
-        reject(new Error(`Stockfish did not return bestmove for ${fen}`));
-      }, hardLimit);
+              requestStop();
+              resolved = true;
+              cleanup();
+              reject(new Error(`Stockfish did not return bestmove for ${fen}`));
+            }, hardLimit);
 
       const handler: LineHandler = (line) => {
         if (line.startsWith("info ")) {
           evaluation = parseInfoLine(line, evaluation);
+          onInfo?.({ ...evaluation });
           return;
         }
         if (!line.startsWith("bestmove ")) return;
