@@ -35,6 +35,16 @@ export interface RepertoireLine {
   pgn: string; // moves like "1. e4 e5 2. Nf3 Nc6 3. Bc4"
   note: string;
   createdAt: number;
+  generated?: {
+    groupId: string;
+    owner: string;
+    openingName: string;
+    openingPgn: string;
+    openingEco: string;
+    source: "lichess-explorer";
+    variation: number;
+    minGames: number;
+  };
 }
 
 export interface PinnedPosition {

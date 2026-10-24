@@ -18,7 +18,14 @@ import { useConnection, useGames, useRepertoire } from "@/lib/chess/hooks";
 import { putRepertoire } from "@/lib/chess/storage";
 import type { Color, RepertoireLine, StoredGame } from "@/lib/chess/types";
 import { ArrowRight, BookOpen, Plus, Sparkles } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { RepertoireBuilder } from "@/components/repertoire-builder";
+import {
+  authorizeExplorer,
+  explorerToken,
+  finishExplorerAuthorization,
+  forgetExplorerToken,
+} from "@/lib/chess/lichess-explorer";
 import { Chess } from "chess.js";
 import { ChessBoard, ChessPositionPreview } from "@/components/chess-board";
 
@@ -42,6 +49,8 @@ type OpeningCard = {
   colorGames?: number;
   scorePct?: number;
   custom?: boolean;
+  games?: StoredGame[];
+  generatedLines?: RepertoireLine[];
 };
 
 type OpeningGroup = {
@@ -129,6 +138,7 @@ function buildPersonalOpenings(games: StoredGame[], color: Color): OpeningCard[]
         gamesPlayed: group.games.length,
         colorGames: colorGames.length,
         scorePct,
+        games: group.games,
       };
     });
 }
@@ -197,26 +207,34 @@ function OpeningTile({ opening, onClick }: { opening: OpeningCard; onClick: () =
             <span className="font-semibold text-foreground">
               {isAccountOpening
                 ? `${opening.gamesPlayed} of ${opening.colorGames} games`
-                : `Essentials · ${learnedLines}/${opening.totalLines}`}
+                : opening.generatedLines
+                  ? `${opening.totalLines}/10 variations`
+                  : `Essentials · ${learnedLines}/${opening.totalLines}`}
             </span>
             <span className="text-muted-foreground">
               {isAccountOpening
                 ? `${opening.scorePct}% score`
-                : `${opening.totalLines} lines total`}
+                : opening.generatedLines
+                  ? "16 full moves"
+                  : `${opening.totalLines} lines total`}
             </span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full min-w-1 rounded-full bg-accent"
-              style={{ width: `${Math.max(opening.progress, 1.5)}%` }}
-            />
-          </div>
+          {!opening.generatedLines && (
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full min-w-1 rounded-full bg-accent"
+                style={{ width: `${Math.max(opening.progress, 1.5)}%` }}
+              />
+            </div>
+          )}
           <div className="mt-4 flex items-center gap-2 text-sm font-semibold">
             <span>
               {isAccountOpening
                 ? "Explore this opening"
                 : opening.progress === 0
-                  ? "Try the first line"
+                  ? opening.generatedLines
+                    ? "Explore variations"
+                    : "Try the first line"
                   : "Continue learning"}
             </span>
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1 group-hover:text-accent" />
@@ -392,29 +410,84 @@ function PersonalOpeningSection({
 
 function RepertoirePage() {
   const conn = useConnection();
-  const games = useGames();
+  const allGames = useGames();
+  const games = useMemo(
+    () =>
+      allGames.filter(
+        (game) =>
+          game.platform === conn?.platform &&
+          (game.myColor === "white" ? game.whiteUser : game.blackUser).toLowerCase() ===
+            conn?.username.toLowerCase(),
+      ),
+    [allGames, conn],
+  );
   const repertoires = useRepertoire();
   const [addOpen, setAddOpen] = useState(false);
   const [selected, setSelected] = useState<OpeningCard | null>(null);
+  const [explorerConnected, setExplorerConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState("");
+  const owner = `${conn?.platform}:${conn?.username.toLowerCase()}`;
+  useEffect(() => {
+    let active = true;
+    setExplorerConnected(Boolean(explorerToken()));
+    void finishExplorerAuthorization()
+      .then(() => {
+        if (active) setExplorerConnected(Boolean(explorerToken()));
+      })
+      .catch((error) => {
+        if (active) setConnectionError(error.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const generatedOpenings = useMemo(() => {
+    const groups = new Map<string, RepertoireLine[]>();
+    for (const line of repertoires) {
+      if (line.generated?.owner !== owner) continue;
+      const groupId = line.generated.groupId;
+      groups.set(groupId, [...(groups.get(groupId) ?? []), line]);
+    }
+    return [...groups.entries()].map(([id, lines]): OpeningCard => {
+      lines.sort((a, b) => a.generated!.variation - b.generated!.variation);
+      const first = lines[0];
+      const info = first.generated!;
+      return {
+        id,
+        name: info.openingName,
+        family: "Generated repertoire",
+        eco: info.openingEco,
+        color: first.color,
+        moves: info.openingPgn,
+        description: `${lines.length} variations through move 16, sourced from Lichess.`,
+        fen: positionFromMoves(info.openingPgn),
+        totalLines: lines.length,
+        progress: 0,
+        generatedLines: lines,
+      };
+    });
+  }, [repertoires, owner]);
 
   const whiteOpenings = useMemo(() => buildPersonalOpenings(games, "white"), [games]);
   const blackOpenings = useMemo(() => buildPersonalOpenings(games, "black"), [games]);
 
   const customOpenings = useMemo(
     () =>
-      repertoires.map<OpeningCard>((line: RepertoireLine) => ({
-        id: line.id,
-        name: line.name,
-        family: "Personal repertoire",
-        eco: line.eco || "ECO",
-        color: line.color,
-        moves: line.pgn,
-        description: "A personal line saved to your repertoire.",
-        fen: positionFromMoves(line.pgn),
-        totalLines: 1,
-        progress: 0,
-        custom: true,
-      })),
+      repertoires
+        .filter((line) => !line.generated)
+        .map<OpeningCard>((line: RepertoireLine) => ({
+          id: line.id,
+          name: line.name,
+          family: "Personal repertoire",
+          eco: line.eco || "ECO",
+          color: line.color,
+          moves: line.pgn,
+          description: "A personal line saved to your repertoire.",
+          fen: positionFromMoves(line.pgn),
+          totalLines: 1,
+          progress: 0,
+          custom: true,
+        })),
     [repertoires],
   );
 
@@ -429,7 +502,7 @@ function RepertoirePage() {
     );
   }
 
-  if (games.length === 0) {
+  if (games.length === 0 && generatedOpenings.length === 0 && customOpenings.length === 0) {
     return (
       <div className="mx-auto max-w-5xl p-6 md:p-10">
         <EmptyConnect
@@ -456,6 +529,41 @@ function RepertoirePage() {
         }
       />
 
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
+        <div>
+          <p className="font-semibold">10 variations per opening · 16 full moves</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Choose an opening below to build its repertoire for White or Black.
+          </p>
+          {connectionError && (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              {connectionError}
+            </p>
+          )}
+        </div>
+        {explorerConnected ? (
+          <Button
+            variant="outline"
+            onClick={() => {
+              forgetExplorerToken();
+              setExplorerConnected(false);
+            }}
+          >
+            Disconnect explorer
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            onClick={() =>
+              void authorizeExplorer().catch(() =>
+                setConnectionError("Could not connect to Lichess. Please retry."),
+              )
+            }
+          >
+            Connect Lichess explorer
+          </Button>
+        )}
+      </div>
       <PersonalOpeningSection
         color="white"
         username={conn.username}
@@ -468,6 +576,23 @@ function RepertoirePage() {
         openings={blackOpenings}
         onSelect={setSelected}
       />
+
+      {generatedOpenings.length > 0 && (
+        <section className="mt-10" aria-labelledby="generated-lines-title">
+          <h2 id="generated-lines-title" className="mb-4 font-display text-2xl font-semibold">
+            Your generated repertoires
+          </h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {generatedOpenings.map((opening) => (
+              <OpeningTile
+                key={opening.id}
+                opening={opening}
+                onClick={() => setSelected(opening)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {customOpenings.length > 0 && (
         <section className="mt-10" aria-labelledby="your-lines-title">
@@ -502,7 +627,9 @@ function RepertoirePage() {
       <AddLineDialog open={addOpen} onOpenChange={setAddOpen} />
 
       <Dialog open={selected != null} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className={`max-h-[90vh] overflow-y-auto ${selected && !selected.custom ? "max-w-5xl" : ""}`}
+        >
           <DialogHeader>
             <div className="mb-2 flex items-center gap-2">
               <Badge variant="outline" className="font-mono text-[10px]">
@@ -515,7 +642,23 @@ function RepertoirePage() {
             <DialogTitle className="font-display text-3xl">{selected?.name}</DialogTitle>
             <DialogDescription className="font-mono">{selected?.moves}</DialogDescription>
           </DialogHeader>
-          {selected && (
+          {selected && !selected.custom && (
+            <RepertoireBuilder
+              key={selected.id}
+              name={selected.name}
+              eco={selected.eco}
+              color={selected.color}
+              owner={owner}
+              games={selected.games ?? []}
+              savedLines={
+                selected.generatedLines ??
+                generatedOpenings.find(
+                  (opening) => opening.name === selected.name && opening.color === selected.color,
+                )?.generatedLines
+              }
+            />
+          )}
+          {selected?.custom && (
             <ChessBoard
               options={{
                 id: "repertoire-detail",

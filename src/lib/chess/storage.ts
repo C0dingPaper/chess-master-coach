@@ -1,8 +1,9 @@
 import { openDB, type IDBPDatabase } from "idb";
 import type { Connection, PinnedPosition, RepertoireLine, StoredGame } from "./types";
+import type { BookPosition } from "./repertoire-generator";
 
 const DB_NAME = "neverpay4chess";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
@@ -11,6 +12,10 @@ function getDb() {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
       upgrade(db) {
+        if (!db.objectStoreNames.contains("explorer")) {
+          const explorer = db.createObjectStore("explorer", { keyPath: "key" });
+          explorer.createIndex("savedAt", "savedAt");
+        }
         if (!db.objectStoreNames.contains("games")) {
           const games = db.createObjectStore("games", { keyPath: "id" });
           games.createIndex("endTime", "endTime");
@@ -97,6 +102,41 @@ export async function putRepertoire(r: RepertoireLine) {
   if (!db) return;
   await db.put("repertoire", r);
   notify("repertoire");
+}
+
+/** Replace only this generated group, atomically; handwritten lines are untouched. */
+export async function putGeneratedRepertoire(lines: RepertoireLine[]) {
+  if (!lines.length || !lines[0].generated) return;
+  const groupId = lines[0].generated.groupId;
+  if (lines.some((line) => line.generated?.groupId !== groupId))
+    throw new Error("Invalid repertoire group.");
+  const db = await getDb();
+  const tx = db.transaction("repertoire", "readwrite");
+  const previous = (await tx.store.getAll()) as RepertoireLine[];
+  for (const line of previous)
+    if (line.generated?.groupId === groupId) await tx.store.delete(line.id);
+  for (const line of lines) await tx.store.put(line);
+  await tx.done;
+  notify("repertoire");
+}
+
+export async function getExplorerCache(key: string): Promise<BookPosition | null> {
+  const db = await getDb();
+  const cached = await db.get("explorer", key);
+  return cached && Date.now() - cached.savedAt < 7 * 86400_000 ? cached.data : null;
+}
+
+export async function putExplorerCache(key: string, data: BookPosition) {
+  const db = await getDb();
+  const tx = db.transaction("explorer", "readwrite");
+  await tx.store.put({ key, data, savedAt: Date.now() });
+  let excess = (await tx.store.count()) - 2500;
+  let cursor = excess > 0 ? await tx.store.index("savedAt").openCursor() : null;
+  while (cursor && excess-- > 0) {
+    await cursor.delete();
+    cursor = await cursor.continue();
+  }
+  await tx.done;
 }
 
 export async function deleteRepertoire(id: string) {

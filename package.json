@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "test:training": "node --experimental-strip-types tests/training-engine.test.ts && node tests/training-setup.test.mjs && node --experimental-strip-types tests/training-clock.test.ts && node --experimental-strip-types tests/training-storage.test.ts && node --experimental-strip-types tests/training-session-lock.test.ts && node --experimental-strip-types tests/training-rating.test.ts && node --experimental-strip-types tests/training-progression.test.ts",
     "puzzles:validate": "node scripts/import-lichess-puzzles.mjs --validate",
-    "puzzles:import": "node scripts/import-lichess-puzzles.mjs"
+    "puzzles:import": "node scripts/import-lichess-puzzles.mjs",
+    "test:repertoire": "node --experimental-strip-types tests/repertoire-generator.test.ts && node tests/repertoire-storage.test.mjs"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",
