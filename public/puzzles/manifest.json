@@ -1,0 +1,188 @@
+{
+  "version": "lichess-training-v1",
+  "source": "Lichess open puzzle database",
+  "sourceUrl": "https://database.lichess.org/lichess_db_puzzle.csv.zst",
+  "documentationUrl": "https://database.lichess.org/#puzzles",
+  "license": "CC0-1.0",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "generatedAt": "2026-10-24T01:23:54.319Z",
+  "minRating": 400,
+  "maxRating": 3000,
+  "bucketSize": 100,
+  "totalPuzzles": 16200,
+  "filters": {
+    "minimumPopularity": 80,
+    "minimumPlays": 100,
+    "uniqueStartingPositions": true,
+    "legalSolutions": true
+  },
+  "selection": {
+    "method": "First qualifying records in source order",
+    "rowsScanned": 1121985,
+    "invalidRowsSkipped": 0
+  },
+  "buckets": [
+    {
+      "rating": 400,
+      "count": 600,
+      "url": "/puzzles/400.json",
+      "sha256": "98ccb16d0ebbc87a85fc09c7b614f07b7b93931926fc5fdeaa5faaff6a96783f"
+    },
+    {
+      "rating": 500,
+      "count": 600,
+      "url": "/puzzles/500.json",
+      "sha256": "d06fbcddc272bae1c234a5a29e7da54e1e6f05dd048a92c52ee939726cd74b5d"
+    },
+    {
+      "rating": 600,
+      "count": 600,
+      "url": "/puzzles/600.json",
+      "sha256": "08e1099c98b085caa7762012dea090b437725c7be209ab20706260b790259a96"
+    },
+    {
+      "rating": 700,
+      "count": 600,
+      "url": "/puzzles/700.json",
+      "sha256": "8641a127773736f177c30ed54666630f7917f8dbd9a4e5fc144f3783e6b3ecb6"
+    },
+    {
+      "rating": 800,
+      "count": 600,
+      "url": "/puzzles/800.json",
+      "sha256": "a3ebd80b4b4caeb3cc7fa14bb030e8879b29e8673cd345183e9c6500ea6651f7"
+    },
+    {
+      "rating": 900,
+      "count": 600,
+      "url": "/puzzles/900.json",
+      "sha256": "de3d9802dca7bee5f7853a7d643ae088e66e71e8cd77fb743d317a4fc748734e"
+    },
+    {
+      "rating": 1000,
+      "count": 600,
+      "url": "/puzzles/1000.json",
+      "sha256": "4c1b2ef1101fbe50b8ae477d6a38d23bd1d7f475b1415e5c52b658b493c0ae27"
+    },
+    {
+      "rating": 1100,
+      "count": 600,
+      "url": "/puzzles/1100.json",
+      "sha256": "d35f79c3721624d16d2a5b463c9bd36ac1fce9ec3804e1764eaf5c5d1e11dde2"
+    },
+    {
+      "rating": 1200,
+      "count": 600,
+      "url": "/puzzles/1200.json",
+      "sha256": "5c0d8efded5daaa9c104b975f18567c712d902eeee2da3acb6f18ba26f8d4e48"
+    },
+    {
+      "rating": 1300,
+      "count": 600,
+      "url": "/puzzles/1300.json",
+      "sha256": "1919f8e196f3af2c4316cb63d84c1850a6debff3d00e42d8b42c0727d19bf5e5"
+    },
+    {
+      "rating": 1400,
+      "count": 600,
+      "url": "/puzzles/1400.json",
+      "sha256": "f11523ec26c5af8858ee24156d47a1d97196f8cee4b173ca9647af1e05c6bb14"
+    },
+    {
+      "rating": 1500,
+      "count": 600,
+      "url": "/puzzles/1500.json",
+      "sha256": "c8cd00a0341e4dfc5ac94b906645453a307695992c180609ff1f3e9b4fad414e"
+    },
+    {
+      "rating": 1600,
+      "count": 600,
+      "url": "/puzzles/1600.json",
+      "sha256": "6bbb5d8458e47171b73336712b573ae9c14e94696ee2b1a11e5a4093c1a1fe26"
+    },
+    {
+      "rating": 1700,
+      "count": 600,
+      "url": "/puzzles/1700.json",
+      "sha256": "7c97e2b40437712be95cd04e7e18acca83442efdcd5a37c4750957ff000dd536"
+    },
+    {
+      "rating": 1800,
+      "count": 600,
+      "url": "/puzzles/1800.json",
+      "sha256": "8a61bf8d2214f09bcc2e32dd049ca29686fca79e432492ce42be304366f4675a"
+    },
+    {
+      "rating": 1900,
+      "count": 600,
+      "url": "/puzzles/1900.json",
+      "sha256": "8d307a0058c953c36313f3ac161dcafd468843e26c73ee1860db4ef163aee144"
+    },
+    {
+      "rating": 2000,
+      "count": 600,
+      "url": "/puzzles/2000.json",
+      "sha256": "b63ec4731cccfc6f31afd8051e40c583835c6a00c3053b092ce7614124e470b4"
+    },
+    {
+      "rating": 2100,
+      "count": 600,
+      "url": "/puzzles/2100.json",
+      "sha256": "ba0da8d6bc849b31c3bda75d1a3eaa7c7bfb1e527d46aff351a14b579ebb8b32"
+    },
+    {
+      "rating": 2200,
+      "count": 600,
+      "url": "/puzzles/2200.json",
+      "sha256": "b0273fdbe7adb5bc7fbd22436ffb6f198f7ab4922cc88bc112dcbbacd0474f05"
+    },
+    {
+      "rating": 2300,
+      "count": 600,
+      "url": "/puzzles/2300.json",
+      "sha256": "9a5ea71f0ce8bc27103bb49496b918a330b97740f47ad864b9341a7e33673a3a"
+    },
+    {
+      "rating": 2400,
+      "count": 600,
+      "url": "/puzzles/2400.json",
+      "sha256": "1e1c5145d2958c3b80cd878e955271caa2b3b8bd9d7209f9dcd4f1c70c8d9b6e"
+    },
+    {
+      "rating": 2500,
+      "count": 600,
+      "url": "/puzzles/2500.json",
+      "sha256": "46b57925dba627060cf031002225799f814c28823e1fb12d43dab3873fd11e06"
+    },
+    {
+      "rating": 2600,
+      "count": 600,
+      "url": "/puzzles/2600.json",
+      "sha256": "bfc7c450efe922d7102a3f709ebffe23a8b15ab702cfed439744a6e7946dcbc4"
+    },
+    {
+      "rating": 2700,
+      "count": 600,
+      "url": "/puzzles/2700.json",
+      "sha256": "579321327d553ae10103374e0f316aec2798f579d6d738e9b7f8a46fd487c3e8"
+    },
+    {
+      "rating": 2800,
+      "count": 600,
+      "url": "/puzzles/2800.json",
+      "sha256": "1fe362a8131edca6159e7c74717d7edfc7a4a91b77dec8e07b1444a02cf39c3c"
+    },
+    {
+      "rating": 2900,
+      "count": 600,
+      "url": "/puzzles/2900.json",
+      "sha256": "c49d4ecacfb84f78af18c57a7d6acf27fa8119b30ed5d385ed521fd82b0b2c00"
+    },
+    {
+      "rating": 3000,
+      "count": 600,
+      "url": "/puzzles/3000.json",
+      "sha256": "aa276578098a8dfc8407f72dc0535c891a002b84eab27b807e0e38bd4b452083"
+    }
+  ]
+}

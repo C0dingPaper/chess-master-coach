@@ -11,7 +11,10 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:training": "node --experimental-strip-types tests/training-engine.test.ts && node tests/training-setup.test.mjs && node --experimental-strip-types tests/training-clock.test.ts && node --experimental-strip-types tests/training-storage.test.ts && node --experimental-strip-types tests/training-session-lock.test.ts && node --experimental-strip-types tests/training-rating.test.ts && node --experimental-strip-types tests/training-progression.test.ts",
+    "puzzles:validate": "node scripts/import-lichess-puzzles.mjs --validate",
+    "puzzles:import": "node scripts/import-lichess-puzzles.mjs"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",
@@ -84,6 +87,7 @@
     "eslint-plugin-prettier": "^5.2.6",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
+    "fake-indexeddb": "6.2.6",
     "globals": "^15.15.0",
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",

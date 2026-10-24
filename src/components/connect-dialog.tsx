@@ -57,11 +57,9 @@ export function ConnectDialog({
     try {
       const { games, errors } = await importGames(platform, u, setProgress, category);
       if (games.length === 0) {
-        toast.error(
-          `No ${category === "all" ? "" : `${category} `}games found for ${u} on ${platform}`,
-        );
-        setBusy(false);
-        return;
+        toast.info("Account connected with no matching games", {
+          description: "You can still build your personal puzzle collection in Training.",
+        });
       }
       await clearGames();
       await putGames(games);
